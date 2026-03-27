@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core.hpp"
-#include "renderpass.hpp"
 #include <vulkan/vulkan_handles.hpp>
 
 namespace alex {
@@ -10,12 +9,12 @@ struct presentation_context_info_t {
   core_t *core{nullptr};
   vk::SurfaceKHR surface;
   vk::Extent2D window_extent;
+  bool enable_vsync{true};
 };
 
 struct next_frame_info_t {
   vk::CommandBuffer presentation_commandbuffer;
   uint32_t flightframe{0};
-  uint32_t swapchain_frameindex{0};
 };
 
 struct presentation_info_t {
@@ -39,10 +38,11 @@ struct presentation_context_t {
   std::span<vk::ImageView> imageviews;
 
   struct {
-    flightframe_array_t<vk::CommandBuffer> commandbuffers;
     flightframe_array_t<vk::Semaphore> image_available;
-    flightframe_array_t<vk::Semaphore> render_finished;
     flightframe_array_t<vk::Fence> in_flight;
+    flightframe_array_t<vk::CommandBuffer> commandbuffers;
+
+    std::span<vk::Semaphore> render_finished;
     uint32_t flightframe{0};
     uint32_t image_index{0};
   } sync;

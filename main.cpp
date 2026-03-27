@@ -99,6 +99,7 @@ int main() {
   alex::presentation_context_info_t presentation_context_info;
   presentation_context_info.core = &core;
   presentation_context_info.surface = surface;
+  presentation_context_info.enable_vsync = false;
   int width{0};
   int height{0};
   SDL_GetWindowSize(window, &width, &height);
@@ -110,7 +111,6 @@ int main() {
   alex::renderpass_info_t renderpass_info;
   renderpass_info.core = &core;
   renderpass_info.extent = presentation_context_info.window_extent;
-  // flightframe_array_t<std::span<vk::ImageView>> attachments;
 
   alex::texture_info_t color_attachment_info;
   color_attachment_info.physical_device = core.physical_device;
@@ -479,5 +479,6 @@ int main() {
     std::println("  Total {} bytes", init_arena.total_memory());
   }
 
+  core.device.waitIdle();
   return 0;
 }

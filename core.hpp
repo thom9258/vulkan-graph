@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vulkan/vulkan.hpp>
-
 #include "arena.hpp"
 
 namespace alex {

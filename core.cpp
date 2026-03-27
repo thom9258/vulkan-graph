@@ -1,6 +1,7 @@
 #include "core.hpp"
 #include "ensure.hpp"
 #include "log.hpp"
+#include "vector.hpp"
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -12,25 +13,30 @@
 
 namespace alex {
 
-void context_t::init(context_info_t &info, memory::arena &allocator) {
+#if 0
+static VKAPI_ATTR VkBool32 VKAPI_CALL
+debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+              VkDebugUtilsMessageTypeFlagsEXT messageType,
+              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+              void *pUserData) {
+  std::println("validation layer: {}", pCallbackData->pMessage);
+  return VK_FALSE;
+}
+#endif
 
+void context_t::init(context_info_t &info, memory::arena &allocator) {
   if (info.instance_extensions.empty()) {
     LOG_WARN("No Vulkan Instance Extensions were provided");
   }
 
-  const uint32_t extension_count = info.instance_extensions.size() + 1;
-  auto extensions = allocator.allocate<const char *>(extension_count);
-  ENSURE_NOT(extensions.empty(), "Arena could not allocate");
-
-  std::size_t extension_index = 0;
+  vector_t<const char *> extensions(allocator, 5);
   for (const char *extension : info.instance_extensions) {
-    extensions[extension_index++] = extension;
+    extensions.put(allocator, extension);
   }
 
-  extensions[extension_index++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-
-  LOG_INFO("Loaded Extensions ({}):", extension_count);
-  for (std::size_t i = 0; i < extension_count; i++) {
+  extensions.put(allocator, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  LOG_INFO("Loaded Extensions ({}):", extensions.length());
+  for (std::size_t i = 0; i < extensions.length(); i++) {
     LOG_INFO("  {}", extensions[i]);
   }
 
@@ -54,12 +60,8 @@ void context_t::init(context_info_t &info, memory::arena &allocator) {
 
   auto instanceCreateInfo = vk::InstanceCreateInfo{}
                                 .setPApplicationInfo(&applicationInfo)
-                                .setEnabledExtensionCount(extension_count)
+                                .setEnabledExtensionCount(extensions.length())
                                 .setPpEnabledExtensionNames(extensions.data());
-
-  if (info.enable_validation) {
-	  instanceCreateInfo.setPEnabledLayerNames(validation_layers);
-  }
 
   instance = vk::createInstance(instanceCreateInfo);
 }

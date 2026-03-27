@@ -52,9 +52,10 @@ void presentation_context_t::init(presentation_context_info_t &info,
   ENSURE(result == vk::Result::eSuccess, "could not get surfac formats!")
 
   format = get_best_swapchain_surface_format(available_surface_formats);
-  LOG_INFO("Swapchain format: {}", vk::to_string(format.format));
 
-  vk::PresentModeKHR constexpr present_mode = vk::PresentModeKHR::eFifo;
+  vk::PresentModeKHR const present_mode = (info.enable_vsync)
+                                              ? vk::PresentModeKHR::eFifo
+                                              : vk::PresentModeKHR::eImmediate;
 
   const auto supports_identity =
       static_cast<bool>(window_capabilities.supportedTransforms &
@@ -85,8 +86,6 @@ void presentation_context_t::init(presentation_context_info_t &info,
   } else {
     image_count = window_capabilities.minImageCount;
   }
-
-  LOG_INFO("Swapchain image count: {}", image_count);
 
   auto swapChainCreateInfo =
       vk::SwapchainCreateInfoKHR{}
@@ -174,6 +173,8 @@ void presentation_context_t::init(presentation_context_info_t &info,
     ENSURE(result == vk::Result::eSuccess, "could not allocate semaphore");
   }
 
+  sync.render_finished = allocator.allocate<vk::Semaphore>(images.size());
+
   for (vk::Semaphore &semaphore : sync.render_finished) {
     result = info.core->device.createSemaphore(&semaphore_create_info, nullptr,
                                                &semaphore);
@@ -194,6 +195,7 @@ void presentation_context_t::init(presentation_context_info_t &info,
 next_frame_info_t
 presentation_context_t::wait_for_next_frame(vk::Device device) {
   // TODO: this goes into a "swapchain wait for next frame" job
+
   std::array<vk::Fence, 1> const fences{sync.in_flight[sync.flightframe]};
   const auto max_wait = std::numeric_limits<unsigned int>::max();
   vk::Result wait_result = device.waitForFences(fences, true, max_wait);
@@ -215,7 +217,6 @@ presentation_context_t::wait_for_next_frame(vk::Device device) {
   next_frame_info_t next_frame_info;
   next_frame_info.presentation_commandbuffer = commandbuffer;
   next_frame_info.flightframe = sync.flightframe;
-  next_frame_info.swapchain_frameindex = sync.image_index;
   return next_frame_info;
 }
 
@@ -272,38 +273,37 @@ void presentation_context_t::present(presentation_info_t &info) {
                                vk::ImageLayout::eTransferDstOptimal, image_blit,
                                info.blit_filter);
 
-    // Here we transfer the color attachment of the renderpass into
-    // transfersrc so we can blit it to the swapchain
-    auto to_present_range = vk::ImageSubresourceRange{}
-                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                     .setBaseMipLevel(0)
-                     .setLevelCount(1)
-                     .setBaseArrayLayer(0)
-                     .setLayerCount(1);
+  // Here we transfer the color attachment of the renderpass into
+  // transfersrc so we can blit it to the swapchain
+  auto to_present_range = vk::ImageSubresourceRange{}
+                              .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                              .setBaseMipLevel(0)
+                              .setLevelCount(1)
+                              .setBaseArrayLayer(0)
+                              .setLayerCount(1);
 
-    auto to_present_barrier =
-        vk::ImageMemoryBarrier{}
-            .setImage(images[sync.image_index])
-            .setSubresourceRange(to_present_range)
-            .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-            .setNewLayout(vk::ImageLayout::ePresentSrcKHR)
-            .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
-            .setDstAccessMask(vk::AccessFlags())
-            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+  auto to_present_barrier =
+      vk::ImageMemoryBarrier{}
+          .setImage(images[sync.image_index])
+          .setSubresourceRange(to_present_range)
+          .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+          .setNewLayout(vk::ImageLayout::ePresentSrcKHR)
+          .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+          .setDstAccessMask(vk::AccessFlags())
+          .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+          .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
 
-    info.commandbuffer.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags(), nullptr,
-        nullptr, to_present_barrier);
-
+  info.commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                     vk::PipelineStageFlagBits::eTransfer,
+                                     vk::DependencyFlags(), nullptr, nullptr,
+                                     to_present_barrier);
 
   info.commandbuffer.end();
   std::array<vk::Semaphore, 1> const wait_semaphores{
       sync.image_available[sync.flightframe]};
 
   std::array<vk::Semaphore, 1> const signal_semaphores{
-      sync.render_finished[sync.flightframe]};
+      sync.render_finished[sync.image_index]};
 
   std::array<vk::PipelineStageFlags, 1> const wait_dst_stage_masks{
       vk::PipelineStageFlagBits::eColorAttachmentOutput};
