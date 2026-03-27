@@ -30,6 +30,7 @@ set(PROGRAM_SOURCES
   presentation_context.cpp
   texture_storage.cpp
   geometry_pipeline.cpp
+  graph.cpp
 )
 
 add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)

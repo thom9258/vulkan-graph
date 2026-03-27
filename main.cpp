@@ -1,5 +1,7 @@
 #include "core.hpp"
+#include "drawing.hpp"
 #include "geometry_pipeline.hpp"
+#include "graph.hpp"
 #include "memory_buffer.hpp"
 #include "presentation_context.hpp"
 #include "renderpass.hpp"
@@ -29,6 +31,103 @@ auto poll_all_sdl_events() -> std::vector<SDL_Event> {
 
   return events;
 };
+
+void draw_frame_manually(
+    alex::core_t &core, alex::presentation_context_t &presentation_context,
+    alex::renderpass_t &geometry_renderpass,
+    alex::geometry_pipeline_t &geometry_pipeline,
+    alex::flightframe_array_t<alex::texture_t> &color_attachments,
+    alex::memory_buffer_t &cube_buffer, alex::draw_info_t &cube_draw_info,
+    std::vector<vk::DescriptorSet> &uniform_sets) {
+
+  alex::next_frame_info_t next_frame_info =
+      presentation_context.wait_for_next_frame(core.device);
+  next_frame_info.presentation_commandbuffer.begin(
+      vk::CommandBufferBeginInfo{});
+
+  const auto render_area = vk::Rect2D{}
+                               .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
+                               .setExtent(geometry_pipeline.extent);
+
+  float constexpr clearcolor = static_cast<float>(0x20) / 255;
+  std::array<vk::ClearValue, 2> clearvalues{
+      vk::ClearValue{}.setColor({clearcolor, clearcolor, clearcolor, 1.0f}),
+      vk::ClearValue{}.setDepthStencil({1.0f, 0}),
+  };
+
+  const auto renderpass_begin_info =
+      vk::RenderPassBeginInfo{}
+          .setRenderPass(geometry_renderpass.renderpass)
+          .setFramebuffer(
+              geometry_renderpass.framebuffers[next_frame_info.flightframe])
+          .setRenderArea(render_area)
+          .setClearValues(clearvalues);
+
+  next_frame_info.presentation_commandbuffer.beginRenderPass(
+      renderpass_begin_info, vk::SubpassContents::eInline);
+  next_frame_info.presentation_commandbuffer.bindPipeline(
+      vk::PipelineBindPoint::eGraphics, geometry_pipeline.pipeline);
+
+  next_frame_info.presentation_commandbuffer.bindDescriptorSets(
+      vk::PipelineBindPoint::eGraphics, geometry_pipeline.layout, 0, 1,
+      &(uniform_sets.at(next_frame_info.flightframe)), 0, nullptr);
+
+  uint32_t constexpr first_binding{0};
+  std::array<vk::Buffer, 1> const buffers{cube_buffer.buffer};
+  std::array<vk::DeviceSize, 1> constexpr offsets{0};
+  next_frame_info.presentation_commandbuffer.bindVertexBuffers(
+      first_binding, buffers, offsets);
+
+  next_frame_info.presentation_commandbuffer.draw(
+      cube_draw_info.vertices_count, cube_draw_info.instance_count,
+      cube_draw_info.first_vertex, cube_draw_info.first_instance);
+
+  next_frame_info.presentation_commandbuffer.endRenderPass();
+
+  // Here we transfer the color attachment of the renderpass into
+  // transfersrc so we can blit it to the swapchain
+  auto range = vk::ImageSubresourceRange{}
+                   .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                   .setBaseMipLevel(0)
+                   .setLevelCount(1)
+                   .setBaseArrayLayer(0)
+                   .setLayerCount(1);
+
+  auto barrier =
+      vk::ImageMemoryBarrier{}
+          .setImage(color_attachments[next_frame_info.flightframe].image)
+          .setSubresourceRange(range)
+          .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
+          .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+          .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+          .setDstAccessMask(vk::AccessFlags())
+          .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+          .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+
+  next_frame_info.presentation_commandbuffer.pipelineBarrier(
+      vk::PipelineStageFlagBits::eTransfer,
+      vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags(), nullptr,
+      nullptr, barrier);
+
+  alex::presentation_info_t presentation_info;
+  presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
+  presentation_info.source_offset_end = vk::Offset3D{
+      static_cast<std::int32_t>(geometry_renderpass.extent.width),
+      static_cast<std::int32_t>(geometry_renderpass.extent.height), 1};
+
+  presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
+  presentation_info.destination_offset_end = vk::Offset3D{
+      static_cast<std::int32_t>(presentation_context.window_extent.width),
+      static_cast<std::int32_t>(presentation_context.window_extent.height), 1};
+
+  presentation_info.blit_filter = vk::Filter::eLinear;
+  presentation_info.image =
+      color_attachments[next_frame_info.flightframe].image;
+  presentation_info.queue = core.queue;
+  presentation_info.commandbuffer = next_frame_info.presentation_commandbuffer;
+
+  presentation_context.present(presentation_info);
+}
 
 std::size_t constexpr mb = 1'000'000;
 
@@ -378,106 +477,74 @@ int main() {
       }
     }
 
-    alex::next_frame_info_t next_frame_info =
+#if 0
+    draw_frame_manually(core, presentation_context, geometry_renderpass,
+                        geometry_pipeline, color_attachments, cube_buffer,
+                        cube_draw_info, uniform_sets);
+#else
+
+    alex::next_frame_info_t frameinfo =
         presentation_context.wait_for_next_frame(core.device);
-    next_frame_info.presentation_commandbuffer.begin(
-        vk::CommandBufferBeginInfo{});
 
-    const auto render_area =
-        vk::Rect2D{}
-            .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
-            .setExtent(geometry_pipeline_info.extent);
 
-    float constexpr clearcolor = static_cast<float>(0x20) / 255;
-    std::array<vk::ClearValue, 2> clearvalues{
-        vk::ClearValue{}.setColor({clearcolor, clearcolor, clearcolor, 1.0f}),
-        vk::ClearValue{}.setDepthStencil({1.0f, 0}),
-    };
+    alex::graph::renderjob_t pipeline_bind_job;
+    pipeline_bind_job.name = "bind geometry pipeline";
+    pipeline_bind_job.type = alex::graph::renderjob_e::bind_geometry_pipeline;
+    pipeline_bind_job.bind_geometry_pipeline.pipeline = &geometry_pipeline;
 
-    const auto renderpass_begin_info =
-        vk::RenderPassBeginInfo{}
-            .setRenderPass(geometry_renderpass.renderpass)
-            .setFramebuffer(
-                geometry_renderpass.framebuffers[next_frame_info.flightframe])
-            .setRenderArea(render_area)
-            .setClearValues(clearvalues);
+    alex::graph::renderjob_t descriptorset_bind_job;
+    descriptorset_bind_job.name = "bind descriptorset for cube";
+    descriptorset_bind_job.type = alex::graph::renderjob_e::bind_descriptorset;
+    descriptorset_bind_job.bind_descriptorset.descriptorset = &uniform_sets[frameinfo.flightframe];
 
-    next_frame_info.presentation_commandbuffer.beginRenderPass(
-        renderpass_begin_info, vk::SubpassContents::eInline);
-    next_frame_info.presentation_commandbuffer.bindPipeline(
-        vk::PipelineBindPoint::eGraphics, geometry_pipeline.pipeline);
+    alex::graph::renderjob_t vertexbuffer_bind_job;
+    vertexbuffer_bind_job.name = "bind cube buffer";
+    vertexbuffer_bind_job.type = alex::graph::renderjob_e::bind_vertexbuffer;
+    vertexbuffer_bind_job.bind_vertexbuffer.buffer = &cube_buffer;
 
-    next_frame_info.presentation_commandbuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics, geometry_pipeline.layout, 0, 1,
-        &(uniform_sets.at(next_frame_info.flightframe)), 0, nullptr);
+    alex::graph::renderjob_t draw_job;
+    draw_job.name = "draw cube";
+    draw_job.type = alex::graph::renderjob_e::draw;
 
-    uint32_t constexpr first_binding{0};
-    std::array<vk::Buffer, 1> const buffers{cube_buffer.buffer};
-    std::array<vk::DeviceSize, 1> constexpr offsets{0};
-    next_frame_info.presentation_commandbuffer.bindVertexBuffers(
-        first_binding, buffers, offsets);
+	alex::vector_t<alex::graph::renderjob_t> renderpass_renderjobs;
+	renderpass_renderjobs.init(&init_arena, 10);
+	renderpass_renderjobs.put(pipeline_bind_job);
+	renderpass_renderjobs.put(descriptorset_bind_job);
+	renderpass_renderjobs.put(vertexbuffer_bind_job);
+	renderpass_renderjobs.put(draw_job);
 
-    next_frame_info.presentation_commandbuffer.draw(
-        cube_draw_info.vertices_count, cube_draw_info.instance_count,
-        cube_draw_info.first_vertex, cube_draw_info.first_instance);
+	alex::graph::job_t renderpass_job;
+	renderpass_job.type = alex::graph::job_e::renderpass;
+	renderpass_job.name = "main renderpass";
+	renderpass_job.renderpass.renderjobs = &renderpass_renderjobs;
 
-    next_frame_info.presentation_commandbuffer.endRenderPass();
+	alex::graph::job_t present_job;
+	present_job.type = alex::graph::job_e::presentation;
+	present_job.name = "present";
+	present_job.presentation.presenter = &presentation_context;
+	present_job.dependencies.init(&init_arena, 3);
+	present_job.dependencies.put(&renderpass_job);
 
-    // Here we transfer the color attachment of the renderpass into
-    // transfersrc so we can blit it to the swapchain
-    auto range = vk::ImageSubresourceRange{}
-                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                     .setBaseMipLevel(0)
-                     .setLevelCount(1)
-                     .setBaseArrayLayer(0)
-                     .setLayerCount(1);
 
-    auto barrier =
-        vk::ImageMemoryBarrier{}
-            .setImage(color_attachments[next_frame_info.flightframe].image)
-            .setSubresourceRange(range)
-            .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
-            .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
-            .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
-            .setDstAccessMask(vk::AccessFlags())
-            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
 
-    next_frame_info.presentation_commandbuffer.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags(), nullptr,
-        nullptr, barrier);
 
-    alex::presentation_info_t presentation_info;
-    presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
-    presentation_info.source_offset_end = vk::Offset3D{
-        static_cast<std::int32_t>(renderpass_info.extent.width),
-        static_cast<std::int32_t>(renderpass_info.extent.height), 1};
+    //std::println("=============================");
+    //std::println("Render Graph:");
+    //alex::graph::print_graph(&presentation_node);
+    //std::println("");
+    //break;
 
-    presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
-    presentation_info.destination_offset_end =
-        vk::Offset3D{static_cast<std::int32_t>(
-                         presentation_context_info.window_extent.width),
-                     static_cast<std::int32_t>(
-                         presentation_context_info.window_extent.height),
-                     1};
+    //frameinfo.presentation_commandbuffer.begin(vk::CommandBufferBeginInfo{});
 
-    presentation_info.blit_filter = vk::Filter::eLinear;
-    presentation_info.image =
-        color_attachments[next_frame_info.flightframe].image;
-    presentation_info.queue = core.queue;
-    presentation_info.commandbuffer =
-        next_frame_info.presentation_commandbuffer;
+	//record_graph(frameinfo.presentation_commandbuffer, &presentation_node);
 
-    presentation_context.present(presentation_info);
+#endif
   }
 
-  {
-    std::println("Shutdown Memory footprint:");
-    std::println("  Used {} bytes", init_arena.used_memory());
-    std::println("  Available {} bytes", init_arena.available_memory());
-    std::println("  Total {} bytes", init_arena.total_memory());
-  }
+  std::println("Shutdown Memory footprint:");
+  std::println("  Used {} bytes", init_arena.used_memory());
+  std::println("  Available {} bytes", init_arena.available_memory());
+  std::println("  Total {} bytes", init_arena.total_memory());
 
   core.device.waitIdle();
   return 0;

@@ -29,12 +29,13 @@ void context_t::init(context_info_t &info, memory::arena &allocator) {
     LOG_WARN("No Vulkan Instance Extensions were provided");
   }
 
-  vector_t<const char *> extensions(allocator, 5);
+  vector_t<const char *> extensions;
+  extensions.init(&allocator, 5);
   for (const char *extension : info.instance_extensions) {
-    extensions.put(allocator, extension);
+    extensions.put(extension);
   }
 
-  extensions.put(allocator, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  extensions.put(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   LOG_INFO("Loaded Extensions ({}):", extensions.length());
   for (std::size_t i = 0; i < extensions.length(); i++) {
     LOG_INFO("  {}", extensions[i]);

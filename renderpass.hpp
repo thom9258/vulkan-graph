@@ -12,6 +12,7 @@ struct renderpass_info_t {
 
 struct renderpass_t {
   vk::RenderPass renderpass;
+  vk::Extent2D extent;
   flightframe_array_t<vk::Framebuffer> framebuffers;
 
   void init(renderpass_info_t &info);

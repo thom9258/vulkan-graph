@@ -26,12 +26,12 @@ struct geometry_pipeline_info_t {
 };
 
 struct geometry_pipeline_t {
+  vk::Extent2D extent;
   vk::PipelineLayout layout;
   vk::Pipeline pipeline;
   vk::DescriptorSetLayout setlayout;
 
   void init(geometry_pipeline_info_t &info, memory::arena &allocator);
-  void record(vk::CommandBuffer commandbuffer);
 };
 
 } // namespace alex

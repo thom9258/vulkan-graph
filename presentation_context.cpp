@@ -28,6 +28,9 @@ vk::SurfaceFormatKHR get_best_swapchain_surface_format(
 void presentation_context_t::init(presentation_context_info_t &info,
                                   memory::arena &allocator) {
   ENSURE(info.core, "Core ptr not provided")
+
+  window_extent = info.window_extent;
+
   vk::SurfaceCapabilitiesKHR window_capabilities =
       info.core->physical_device.getSurfaceCapabilitiesKHR(info.surface);
 

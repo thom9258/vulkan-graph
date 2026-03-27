@@ -32,6 +32,7 @@ struct presentation_info_t {
 };
 
 struct presentation_context_t {
+  vk::Extent2D window_extent;
   vk::SurfaceFormatKHR format;
   vk::SwapchainKHR swapchain;
   std::span<vk::Image> images;

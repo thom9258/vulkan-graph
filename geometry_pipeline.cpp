@@ -34,6 +34,7 @@ void geometry_pipeline_t::init(geometry_pipeline_info_t &info,
 
   ENSURE(info.core, "core ptr not provided")
   ENSURE(info.renderpass, "renderpass ptr not provided")
+  extent = info.extent;
 
   auto vertex_source = read_spirv_source(info.vertex_program_path, allocator);
   ENSURE_NOT(vertex_source.empty(), "Could not load vertex source: {}",
@@ -240,7 +241,5 @@ void geometry_pipeline_t::init(geometry_pipeline_info_t &info,
   ENSURE(result.result == vk::Result::eSuccess, "Could not create pipeline")
   pipeline = result.value;
 }
-
-void geometry_pipeline_t::record(vk::CommandBuffer commandbuffer) {}
 
 } // namespace alex

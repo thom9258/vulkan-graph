@@ -8,6 +8,8 @@ void renderpass_t::init(renderpass_info_t &info) {
   constexpr auto render_format = vk::Format::eR8G8B8A8Srgb;
   constexpr auto depth_format = vk::Format::eD32Sfloat;
 
+  extent = info.extent;
+
   const auto color_attachment =
       vk::AttachmentDescription{}
           .setFlags(vk::AttachmentDescriptionFlags())
