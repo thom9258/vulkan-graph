@@ -479,29 +479,37 @@ int main() {
                         cube_draw_info, uniform_sets);
 #else
 
-    auto depth_resource =
-        alex::graph::resource_info_t{.name = "depth",
-                                .type = alex::graph::resource_type_t::texture,
-                                .texture = alex::graph::texture_resource_t{
-                                    .format = vk::Format::eD32Sfloat,
-                                    .extent = vk::Extent3D(800, 600, 1)}};
+    auto unused_overlay_resource = alex::graph::resource_info_t{
+        .name = "unused_overlay",
+        .type = alex::graph::resource_type_t::texture,
+        .texture = alex::graph::texture_resource_t{
+            .format = vk::Format::eR8G8B8A8Unorm,
+            .extent = vk::Extent3D(800, 600, 1)}};
 
-    auto geometry_resource =
-        alex::graph::resource_info_t{.name = "geometry",
-                                .type = alex::graph::resource_type_t::texture,
-                                .texture = alex::graph::texture_resource_t{
-                                    .format = vk::Format::eR8G8B8A8Snorm,
-                                    .extent = vk::Extent3D(800, 600, 1)}};
+    auto depth_resource = alex::graph::resource_info_t{
+        .name = "depth",
+        .type = alex::graph::resource_type_t::texture,
+        .texture = alex::graph::texture_resource_t{
+            .format = vk::Format::eD32Sfloat,
+            .extent = vk::Extent3D(800, 600, 1)}};
 
-    auto final_image_resource =
-        alex::graph::resource_info_t{.name = "final-image",
-                                .type = alex::graph::resource_type_t::texture,
-                                .texture = alex::graph::texture_resource_t{
-                                    .format = vk::Format::eR8G8B8A8Snorm,
-                                    .extent = vk::Extent3D(800, 600, 1)}};
+    auto geometry_resource = alex::graph::resource_info_t{
+        .name = "geometry",
+        .type = alex::graph::resource_type_t::texture,
+        .texture = alex::graph::texture_resource_t{
+            .format = vk::Format::eR8G8B8A8Unorm,
+            .extent = vk::Extent3D(800, 600, 1)}};
 
-    auto resources = std::to_array(
-        {&depth_resource, &geometry_resource, &final_image_resource});
+    auto final_image_resource = alex::graph::resource_info_t{
+        .name = "final-image",
+        .type = alex::graph::resource_type_t::texture,
+        .texture = alex::graph::texture_resource_t{
+            .format = vk::Format::eR8G8B8A8Unorm,
+            .extent = vk::Extent3D(800, 600, 1)}};
+
+    auto resources =
+        std::to_array({&depth_resource, &geometry_resource,
+                       &final_image_resource, &unused_overlay_resource});
 
     auto depth_prepass_outputs = std::to_array({"depth"sv});
 
@@ -517,8 +525,7 @@ int main() {
     geometry_pass.inputs = geometry_pass_inputs;
     geometry_pass.outputs = geometry_pass_outputs;
 
-    auto ssao_postprocess_inputs =
-        std::to_array({"depth"sv, "geometry"sv});
+    auto ssao_postprocess_inputs = std::to_array({"depth"sv, "geometry"sv});
     auto ssao_postprocess_outputs = std::to_array({"final-image"sv});
 
     alex::graph::renderpass_info_t ssao_postprocess;
@@ -542,6 +549,8 @@ int main() {
 
     alex::graph::graph_t graph;
     graph.init(graph_info);
+
+    graph.debug_print();
 
     break;
 #endif

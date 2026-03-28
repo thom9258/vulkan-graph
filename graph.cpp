@@ -1,155 +1,9 @@
 #include "graph.hpp"
 #include "ensure.hpp"
 #include "vector.hpp"
+#include <iostream>
 
 namespace alex::graph {
-
-bool contains_resource(vector_t<framegraph_resource_t *> resources,
-                       std::string_view name) {
-
-  for (framegraph_resource_t *resource : resources.span()) {
-    if (resource->name == name)
-      return true;
-  }
-
-  return false;
-}
-#if 0
-auto create_framegraph_nodes(std::span<renderpass_t *> renderpasses,
-                             std::span<framegraph_resource_t> resources,
-                             memory::arena &arena)
-    -> std::span<framegraph_node_t> {
-  ENSURE_NOT(renderpasses.empty(), "must have renderpasses")
-  ENSURE_NOT(resources.empty(), "must have resources")
-
-  auto nodes = arena.allocate<framegraph_node_t>(renderpasses.size());
-
-  // TODO: simplify this shit
-  for (std::size_t nodei = 0; nodei < renderpasses.size(); nodei++) {
-    nodes[nodei].name = renderpasses[nodei]->name;
-    nodes[nodei].inputs.init(&arena, 3);
-    nodes[nodei].outputs.init(&arena, 3);
-
-    for (resource_t *input : renderpasses[nodei]->inputs) {
-      std::string_view input_name = input->name;
-
-      for (std::size_t resourcei = 0; resourcei < resources.size();
-           resourcei++) {
-        if (resources[resourcei].name == input_name) {
-          if (!contains_resource(nodes[nodei].inputs,
-                                 resources[resourcei].name)) {
-            nodes[nodei].inputs.put(&resources[resourcei]);
-          }
-        }
-      }
-    }
-
-    for (resource_t *output : renderpasses[nodei]->outputs) {
-      std::string_view output_name = output->name;
-      for (std::size_t resourcei = 0; resourcei < resources.size();
-           resourcei++) {
-        if (resources[resourcei].name == output_name) {
-          if (!contains_resource(nodes[nodei].outputs,
-                                 resources[resourcei].name)) {
-            nodes[nodei].outputs.put(&resources[resourcei]);
-          }
-        }
-      }
-    }
-  }
-
-  return nodes;
-}
-
-auto create_framegraph_resources(std::span<renderpass_t *> renderpasses,
-                                 memory::arena &arena)
-    -> std::span<framegraph_resource_t> {
-  ENSURE_NOT(renderpasses.empty(), "must have renderpasses")
-
-  vector_t<framegraph_resource_t> buffer;
-  std::size_t const estimated_buffer_size = renderpasses.size() * 2;
-  buffer.init(&arena, estimated_buffer_size);
-
-  for (std::size_t i = 0; i < renderpasses.size(); i++) {
-    ENSURE(renderpasses[i] != nullptr, "renderpass must not be nullptr");
-    for (resource_t *input : renderpasses[i]->inputs) {
-      ENSURE(input != nullptr, "renderpass input must not be nullptr");
-      framegraph_resource_t *curr = buffer.put_empty();
-      curr->name = input->name;
-      curr->type = input->type;
-    }
-
-    for (resource_t *output : renderpasses[i]->outputs) {
-      ENSURE(output != nullptr, "renderpass output must not be nullptr");
-      framegraph_resource_t *curr = buffer.put_empty();
-      curr->name = output->name;
-      curr->type = output->type;
-    }
-  }
-
-  return buffer.span();
-}
-
-auto insert_resource_producers(std::span<renderpass_t *> renderpasses,
-                               memory::arena &arena)
-    -> std::span<framegraph_node_t> {
-  auto nodes = arena.allocate<framegraph_node_t>(renderpasses.size());
-  for (std::size_t i = 0; i < renderpasses.size(); i++) {
-    nodes[i].name = renderpasses[i]->name;
-  }
-
-  return nodes;
-}
-
-bool nodes_should_be_swapped(framegraph_node_t &left,
-                             framegraph_node_t &right) {
-  for (framegraph_resource_t *left_input : left.inputs.span()) {
-    for (framegraph_resource_t *right_output : right.outputs.span()) {
-      ENSURE(left_input != nullptr, "invalid ptr")
-      ENSURE(right_output != nullptr, "invalid ptr")
-      if (left_input->name == right_output->name) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-void topological_sort_nodes(std::span<framegraph_node_t> nodes) {
-  ENSURE_NOT(nodes.empty(), "must have atleast 1 node")
-
-  if (nodes.size() == 1) {
-    return;
-  }
-
-  std::size_t l = 0;
-  std::size_t r = nodes.size() - 1;
-  while (l < r) {
-    std::println("l/r {}/{}", l, r);
-    if (nodes_should_be_swapped(nodes[l], nodes[r])) {
-      std::println("swapping {} and {}", nodes[l].name, nodes[r].name);
-      std::swap(nodes[l], nodes[r]);
-      r--;
-    } else {
-      std::println("didnt swap {} and {}", nodes[l].name, nodes[r].name);
-      l++;
-    }
-  }
-}
-
-void insert_resource_producers(std::span<framegraph_node_t> nodes,
-                               std::span<framegraph_resource_t> resources) {
-  ENSURE_NOT(nodes.empty(), "must have atleast 1 node")
-  ENSURE_NOT(resources.empty(), "must have atleast 1 resource")
-
-  for (framegraph_node_t &node : nodes) {
-    for (framegraph_resource_t *output : outputs) {
-      
-    }
-  }
-}
-#endif
 
 void graph_t::init_framegraph_resources() {
   m_resources =
@@ -216,12 +70,12 @@ void graph_t::prune_unused_nodes() {
   // TODO: not implemented
 }
 
-void graph_t::connect_node_edges() {
+void graph_t::connect_node_dependencies() {
   for (std::size_t i = 0; i < m_nodes.size(); i++) {
-     m_nodes[i]->edges.init(m_arena, 3);
-     for (framegraph_resource_t* input : m_nodes[i]->inputs.span()) {
-		 m_nodes[i]->edges.put(input->producer);
-     }
+    m_nodes[i]->dependencies.init(m_arena, 3);
+    for (framegraph_resource_t *input : m_nodes[i]->inputs.span()) {
+      m_nodes[i]->dependencies.put(input->producer);
+    }
   }
 }
 
@@ -237,8 +91,7 @@ void graph_t::init(graph_info_t &info) {
   init_framegraph_nodes();
   prune_unused_resources();
   prune_unused_nodes();
-  connect_node_edges();
-  debug_print();
+  connect_node_dependencies();
 }
 
 void graph_t::debug_print() {
@@ -259,7 +112,7 @@ void graph_t::debug_print() {
     std::println("]");
 
     std::print("    [depends on: ");
-    for (alex::graph::framegraph_node_t *edge : node->edges.span()) {
+    for (alex::graph::framegraph_node_t *edge : node->dependencies.span()) {
       std::print("{} ", edge->name);
     }
     std::println("]");
@@ -273,6 +126,19 @@ void graph_t::debug_print() {
   }
 
   std::println("====================");
+}
+
+void graph_t::debug_graphviz() {
+  std::cout << "digraph \"renderpass_dependencies\" {" << std::endl;
+  std::cout << "\tnode [shape=box, style=outline, color=black];" << std::endl;
+
+  for (alex::graph::framegraph_node_t *node : m_nodes) {
+    for (alex::graph::framegraph_node_t *edge : node->dependencies.span()) {
+      std::cout << "\t\"" << node->name << "\" -> \""<< edge->name << "\";" << std::endl;
+    }
+  }
+
+  std::cout << "}" << std::endl;
 }
 
 } // namespace alex::graph

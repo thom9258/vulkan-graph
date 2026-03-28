@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "memory_buffer.hpp"
 #include "texture.hpp"
 #include "vector.hpp"
@@ -27,6 +29,14 @@ struct resource_info_t {
   };
 };
 
+struct renderpass_record_info_t {
+  vk::CommandBuffer commandbuffer;
+  std::span<std::string_view> inputs;
+  std::span<std::string_view> outputs;
+};
+
+using renderpass_recorder_t = std::function<void(renderpass_record_info_t&)>;
+
 struct renderpass_info_t {
   std::string_view name{""};
   std::span<std::string_view> inputs;
@@ -46,7 +56,7 @@ struct framegraph_node_t {
   std::string_view name{""};
   vector_t<framegraph_resource_t *> inputs;
   vector_t<framegraph_resource_t *> outputs;
-  vector_t<framegraph_node_t *> edges;
+  vector_t<framegraph_node_t *> dependencies;
 };
 
 struct graph_info_t {
@@ -65,6 +75,7 @@ struct graph_t {
 
   void init(graph_info_t &info);
   void debug_print();
+  void debug_graphviz();
 
 private:
   framegraph_resource_t *find_resource(std::string_view name);
@@ -72,7 +83,7 @@ private:
   void init_framegraph_nodes();
   void prune_unused_resources();
   void prune_unused_nodes();
-  void connect_node_edges();
+  void connect_node_dependencies();
 };
 
 } // namespace alex::graph
