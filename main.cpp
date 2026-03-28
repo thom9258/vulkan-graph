@@ -7,6 +7,7 @@
 #include "presentation_context.hpp"
 #include "renderpass.hpp"
 #include "texture.hpp"
+#include "texture_storage.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -484,28 +485,32 @@ int main() {
         .type = alex::graph::resource_type_t::texture,
         .texture = alex::graph::texture_resource_t{
             .format = vk::Format::eR8G8B8A8Unorm,
-            .extent = vk::Extent3D(800, 600, 1)}};
+            .extent = vk::Extent3D(800, 600, 1),
+            .aspect_flags = vk::ImageAspectFlagBits::eColor}};
 
     auto depth_resource = alex::graph::resource_info_t{
         .name = "depth",
         .type = alex::graph::resource_type_t::texture,
         .texture = alex::graph::texture_resource_t{
             .format = vk::Format::eD32Sfloat,
-            .extent = vk::Extent3D(800, 600, 1)}};
+            .extent = vk::Extent3D(800, 600, 1),
+            .aspect_flags = vk::ImageAspectFlagBits::eDepth}};
 
     auto geometry_resource = alex::graph::resource_info_t{
         .name = "geometry",
         .type = alex::graph::resource_type_t::texture,
         .texture = alex::graph::texture_resource_t{
             .format = vk::Format::eR8G8B8A8Unorm,
-            .extent = vk::Extent3D(800, 600, 1)}};
+            .extent = vk::Extent3D(800, 600, 1),
+            .aspect_flags = vk::ImageAspectFlagBits::eColor}};
 
     auto final_image_resource = alex::graph::resource_info_t{
         .name = "final-image",
         .type = alex::graph::resource_type_t::texture,
         .texture = alex::graph::texture_resource_t{
             .format = vk::Format::eR8G8B8A8Unorm,
-            .extent = vk::Extent3D(800, 600, 1)}};
+            .extent = vk::Extent3D(800, 600, 1),
+            .aspect_flags = vk::ImageAspectFlagBits::eColor}};
 
     auto resources =
         std::to_array({&depth_resource, &geometry_resource,
@@ -542,16 +547,30 @@ int main() {
     auto renderpasses = std::to_array(
         {&geometry_pass, &present_pass, &depth_prepass, &ssao_postprocess});
 
+    alex::texture_storage_info_t texture_storage_info;
+    texture_storage_info.capacity = 25;
+
+    alex::texture_storage_t texture_storage;
+    texture_storage.init(texture_storage_info, init_arena);
+
     alex::graph::graph_info_t graph_info;
+	graph_info.physical_device = core.physical_device;
+	graph_info.device = core.device;
     graph_info.renderpass_infos = renderpasses;
     graph_info.resource_infos = resources;
     graph_info.arena = &init_arena;
+    graph_info.texture_storage = &texture_storage;
 
     alex::graph::graph_t graph;
     graph.init(graph_info);
-
     graph.debug_print();
 
+    alex::texture_t *final_image = texture_storage.find("final-image");
+    if (final_image) {
+      std::println("image was actually put in storage!");
+    } else {
+      std::println("NO image was put in storage!");
+    }
     break;
 #endif
   }
