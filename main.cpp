@@ -1,13 +1,12 @@
 #include "core.hpp"
 #include "drawing.hpp"
 #include "geometry_pipeline.hpp"
+#include "geometry_primitives.hpp"
 #include "graph.hpp"
 #include "memory_buffer.hpp"
 #include "presentation_context.hpp"
 #include "renderpass.hpp"
-#include "texture_storage.hpp"
-
-#include "geometry_primitives.hpp"
+#include "texture.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -21,6 +20,8 @@
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
+
+using namespace std::literals;
 
 auto poll_all_sdl_events() -> std::vector<SDL_Event> {
   std::vector<SDL_Event> events;
@@ -189,11 +190,6 @@ int main() {
 
   alex::core_t core;
   core.init(core_info, init_arena);
-
-  alex::texture_storage_info_t texture_storage_info;
-  texture_storage_info.capacity = 128;
-  alex::texture_storage_t texture_storage;
-  texture_storage.init(texture_storage_info, init_arena);
 
   alex::presentation_context_info_t presentation_context_info;
   presentation_context_info.core = &core;
@@ -483,61 +479,71 @@ int main() {
                         cube_draw_info, uniform_sets);
 #else
 
-    alex::next_frame_info_t frameinfo =
-        presentation_context.wait_for_next_frame(core.device);
+    auto depth_resource =
+        alex::graph::resource_info_t{.name = "depth",
+                                .type = alex::graph::resource_type_t::texture,
+                                .texture = alex::graph::texture_resource_t{
+                                    .format = vk::Format::eD32Sfloat,
+                                    .extent = vk::Extent3D(800, 600, 1)}};
 
+    auto geometry_resource =
+        alex::graph::resource_info_t{.name = "geometry",
+                                .type = alex::graph::resource_type_t::texture,
+                                .texture = alex::graph::texture_resource_t{
+                                    .format = vk::Format::eR8G8B8A8Snorm,
+                                    .extent = vk::Extent3D(800, 600, 1)}};
 
-    alex::graph::renderjob_t pipeline_bind_job;
-    pipeline_bind_job.name = "bind geometry pipeline";
-    pipeline_bind_job.type = alex::graph::renderjob_e::bind_geometry_pipeline;
-    pipeline_bind_job.bind_geometry_pipeline.pipeline = &geometry_pipeline;
+    auto final_image_resource =
+        alex::graph::resource_info_t{.name = "final-image",
+                                .type = alex::graph::resource_type_t::texture,
+                                .texture = alex::graph::texture_resource_t{
+                                    .format = vk::Format::eR8G8B8A8Snorm,
+                                    .extent = vk::Extent3D(800, 600, 1)}};
 
-    alex::graph::renderjob_t descriptorset_bind_job;
-    descriptorset_bind_job.name = "bind descriptorset for cube";
-    descriptorset_bind_job.type = alex::graph::renderjob_e::bind_descriptorset;
-    descriptorset_bind_job.bind_descriptorset.descriptorset = &uniform_sets[frameinfo.flightframe];
+    auto resources = std::to_array(
+        {&depth_resource, &geometry_resource, &final_image_resource});
 
-    alex::graph::renderjob_t vertexbuffer_bind_job;
-    vertexbuffer_bind_job.name = "bind cube buffer";
-    vertexbuffer_bind_job.type = alex::graph::renderjob_e::bind_vertexbuffer;
-    vertexbuffer_bind_job.bind_vertexbuffer.buffer = &cube_buffer;
+    auto depth_prepass_outputs = std::to_array({"depth"sv});
 
-    alex::graph::renderjob_t draw_job;
-    draw_job.name = "draw cube";
-    draw_job.type = alex::graph::renderjob_e::draw;
+    alex::graph::renderpass_info_t depth_prepass;
+    depth_prepass.name = "depth_prepass";
+    depth_prepass.outputs = depth_prepass_outputs;
 
-	alex::vector_t<alex::graph::renderjob_t> renderpass_renderjobs;
-	renderpass_renderjobs.init(&init_arena, 10);
-	renderpass_renderjobs.put(pipeline_bind_job);
-	renderpass_renderjobs.put(descriptorset_bind_job);
-	renderpass_renderjobs.put(vertexbuffer_bind_job);
-	renderpass_renderjobs.put(draw_job);
+    auto geometry_pass_inputs = std::to_array({"depth"sv});
+    auto geometry_pass_outputs = std::to_array({"geometry"sv});
 
-	alex::graph::job_t renderpass_job;
-	renderpass_job.type = alex::graph::job_e::renderpass;
-	renderpass_job.name = "main renderpass";
-	renderpass_job.renderpass.renderjobs = &renderpass_renderjobs;
+    alex::graph::renderpass_info_t geometry_pass;
+    geometry_pass.name = "geometry_pass";
+    geometry_pass.inputs = geometry_pass_inputs;
+    geometry_pass.outputs = geometry_pass_outputs;
 
-	alex::graph::job_t present_job;
-	present_job.type = alex::graph::job_e::presentation;
-	present_job.name = "present";
-	present_job.presentation.presenter = &presentation_context;
-	present_job.dependencies.init(&init_arena, 3);
-	present_job.dependencies.put(&renderpass_job);
+    auto ssao_postprocess_inputs =
+        std::to_array({"depth"sv, "geometry"sv});
+    auto ssao_postprocess_outputs = std::to_array({"final-image"sv});
 
+    alex::graph::renderpass_info_t ssao_postprocess;
+    ssao_postprocess.name = "ssao_postprocess";
+    ssao_postprocess.inputs = ssao_postprocess_inputs;
+    ssao_postprocess.outputs = ssao_postprocess_outputs;
 
+    auto present_pass_inputs = std::to_array({"final-image"sv});
 
+    alex::graph::renderpass_info_t present_pass;
+    present_pass.name = "present_pass";
+    present_pass.inputs = present_pass_inputs;
 
-    //std::println("=============================");
-    //std::println("Render Graph:");
-    //alex::graph::print_graph(&presentation_node);
-    //std::println("");
-    //break;
+    auto renderpasses = std::to_array(
+        {&geometry_pass, &present_pass, &depth_prepass, &ssao_postprocess});
 
-    //frameinfo.presentation_commandbuffer.begin(vk::CommandBufferBeginInfo{});
+    alex::graph::graph_info_t graph_info;
+    graph_info.renderpass_infos = renderpasses;
+    graph_info.resource_infos = resources;
+    graph_info.arena = &init_arena;
 
-	//record_graph(frameinfo.presentation_commandbuffer, &presentation_node);
+    alex::graph::graph_t graph;
+    graph.init(graph_info);
 
+    break;
 #endif
   }
 
@@ -545,7 +551,6 @@ int main() {
   std::println("  Used {} bytes", init_arena.used_memory());
   std::println("  Available {} bytes", init_arena.available_memory());
   std::println("  Total {} bytes", init_arena.total_memory());
-
   core.device.waitIdle();
   return 0;
 }

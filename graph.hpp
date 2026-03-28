@@ -1,92 +1,78 @@
 #pragma once
 
-#include "geometry_pipeline.hpp"
 #include "memory_buffer.hpp"
-#include "presentation_context.hpp"
+#include "texture.hpp"
 #include "vector.hpp"
-
-#include <print>
-#include <string_view>
-#include <variant>
-#include <vulkan/vulkan_handles.hpp>
 
 namespace alex::graph {
 
-struct renderpass_job_t;
-struct presentation_job_t;
+enum class resource_type_t { attachment, texture, memory_buffer, reference };
 
-struct node_t {
-  using job_pointer_t = std::variant<renderpass_job_t *, presentation_job_t *>;
-  std::string_view name{""};
-  job_pointer_t job;
-  vector_t<node_t *> dependencies;
+struct texture_resource_t {
+  vk::Format format;
+  vk::Extent3D extent;
 };
 
-enum class renderjob_e {
-  bind_geometry_pipeline,
-  bind_vertexbuffer,
-  bind_descriptorset,
-  draw,
+struct attachment_resource_t {
+  vk::Format format;
+  vk::Extent3D extent;
 };
 
-struct renderjob_t {
+struct resource_info_t {
   std::string_view name{""};
-  renderjob_e type;
+  resource_type_t type;
   union {
-    struct {
-      geometry_pipeline_t *pipeline;
-    } bind_geometry_pipeline;
-    struct {
-      vk::DescriptorSet *descriptorset;
-    } bind_descriptorset;
-    struct {
-      memory_buffer_t *buffer;
-    } bind_vertexbuffer;
+    texture_resource_t texture;
+    attachment_resource_t attachment;
   };
 };
 
-enum class job_e {
-  presentation,
-  renderpass,
+struct renderpass_info_t {
+  std::string_view name{""};
+  std::span<std::string_view> inputs;
+  std::span<std::string_view> outputs;
 };
 
-struct job_t {
-  std::string_view name;
-  job_e type;
-  vector_t<job_t*> dependencies;
+struct framegraph_node_t;
 
-  union {
-    struct {
-		presentation_context_t *presenter;
-    } presentation;
-    struct {
-		renderpass_t *renderpass;
-		vector_t<renderjob_t>* renderjobs;
-    } renderpass;
-  };
+struct framegraph_resource_t {
+  std::string_view name{""};
+  resource_type_t type;
+  std::uint32_t reference_count{0};
+  framegraph_node_t *producer{nullptr};
 };
 
-
-
-
-
-#if 0
-
-using id_t = std::uint32_t;
-
-struct builder_t {
-  void init(memory::arena *arena);
-  id_t make_renderpass_job();
-  id_t make_presentation_job();
-  bool add_dependency(id_t base, id_t depends_on);
-  job_t* find_job(id_t id);
-
-  memory::arena *arena{nullptr};
-  id_t next_id{0};
-  vector_t<job_t> jobs;
+struct framegraph_node_t {
+  std::string_view name{""};
+  vector_t<framegraph_resource_t *> inputs;
+  vector_t<framegraph_resource_t *> outputs;
+  vector_t<framegraph_node_t *> edges;
 };
-void print_graph(node_t *root);
-void record_graph(vk::CommandBuffer commandbuffer, node_t *root);
-#endif
+
+struct graph_info_t {
+  memory::arena* arena{nullptr};
+  std::span<renderpass_info_t *> renderpass_infos;
+  std::span<resource_info_t *> resource_infos;
+};
+
+struct graph_t {
+  memory::arena* m_arena{nullptr};
+  std::span<renderpass_info_t *> m_renderpass_infos;
+  std::span<resource_info_t *> m_resource_infos;
+
+  std::span<framegraph_node_t*> m_nodes;
+  std::span<framegraph_resource_t*> m_resources;
+
+  void init(graph_info_t &info);
+  void debug_print();
+
+private:
+  framegraph_resource_t *find_resource(std::string_view name);
+  void init_framegraph_resources();
+  void init_framegraph_nodes();
+  void prune_unused_resources();
+  void prune_unused_nodes();
+  void connect_node_edges();
+};
 
 } // namespace alex::graph

@@ -28,6 +28,7 @@ set(PROGRAM_SOURCES
   memory_buffer.cpp
   renderpass.cpp
   presentation_context.cpp
+  texture.cpp
   texture_storage.cpp
   geometry_pipeline.cpp
   graph.cpp

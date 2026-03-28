@@ -15,21 +15,22 @@ template <typename T> struct vector_t {
   void init(memory::arena *arena, std::size_t initial_count) {
     initial_count = initial_count == 0 ? 1 : initial_count;
     m_arena = arena;
-    std::span<element_t> allocated = m_arena->allocate<element_t>(initial_count);
-	m_elements = allocated.data();
-	m_capacity = allocated.size();
+    std::span<element_t> allocated =
+        m_arena->allocate<element_t>(initial_count);
+    m_elements = allocated.data();
+    m_capacity = allocated.size();
   }
 
   void maybe_grow() {
     if (m_count >= m_capacity - 1) {
       std::size_t const new_count = (m_capacity * m_growth_factor) + 1;
-	  std::span<element_t> allocated = m_arena->allocate<element_t>(new_count);
+      std::span<element_t> allocated = m_arena->allocate<element_t>(new_count);
       for (std::size_t i = 0; i < m_count; i++) {
         std::swap(allocated[i], m_elements[i]);
       }
 
-	  m_elements = allocated.data();
-	  m_capacity = allocated.size();
+      m_elements = allocated.data();
+      m_capacity = allocated.size();
     }
   }
 
@@ -43,24 +44,23 @@ template <typename T> struct vector_t {
 
   element_pointer_t last() { return &m_elements[m_count - 1]; }
 
+  std::span<element_t> span() { return {m_elements, m_count}; }
+
   element_pointer_t put_empty() {
     maybe_grow();
     m_count++;
     return last();
   }
 
-  element_pointer_t put(memory::arena &resize_arena,
-                        element_rvalue_reference_t element) {
-    maybe_grow();
-    m_elements[m_count] = std::move(element);
-    m_count++;
+  element_pointer_t put(element_rvalue_reference_t element) {
+    put_empty();
+    *last() = std::move(element);
     return last();
   }
 
   element_pointer_t put(element_const_reference_t element) {
-    maybe_grow();
-    m_elements[m_count] = element;
-    m_count++;
+    put_empty();
+    *last() = element;
     return last();
   }
 
