@@ -2,32 +2,12 @@
 #include "arena.hpp"
 #include "ensure.hpp"
 #include "drawing.hpp"
+#include "read_spirv_source.hpp"
 
 #include <filesystem>
 #include <fstream>
 
 namespace alex {
-
-[[nodiscard]]
-std::span<uint32_t> read_spirv_source(std::filesystem::path path,
-									  memory::arena &allocator) {
-
-  std::ifstream file(path, std::ios::ate | std::ios::binary);
-  if (!file.is_open()) {
-    return {};
-  }
-
-  size_t const bytecount = static_cast<size_t>(file.tellg());
-  constexpr size_t scaling_factor = sizeof(uint32_t) / sizeof(char);
-  size_t const read_times = bytecount / scaling_factor;
-  auto buffer = allocator.allocate<std::uint32_t>(read_times);
-  ENSURE_NOT(buffer.empty(), "allocator full");
-  file.seekg(0);
-  file.read(reinterpret_cast<char *>(buffer.data()),
-            sizeof(buffer[0]) * buffer.size());
-  file.close();
-  return buffer;
-}
 
 void geometry_pipeline_t::init(geometry_pipeline_info_t &info,
                                memory::arena &allocator) {

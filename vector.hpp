@@ -63,6 +63,10 @@ template <typename T> struct vector_t {
     *last() = element;
     return last();
   }
+	
+  bool is_initialized() const {
+	  return m_arena != nullptr || m_elements == nullptr;
+  }
 
 private:
   element_pointer_t m_elements{nullptr};

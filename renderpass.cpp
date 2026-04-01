@@ -78,17 +78,20 @@ void renderpass_t::init(renderpass_info_t &info) {
                                   .setDependencies(dependencies)
                                   .setSubpasses(subpass);
 
-  renderpass = info.core->device.createRenderPass(renderPassCreateInfo);
+  renderpass = info.device.createRenderPass(renderPassCreateInfo);
 
   for (auto [i, framebuffer] : framebuffers | std::views::enumerate) {
+
+    std::array<vk::ImageView, 2> attachments = {info.attachments[i].color,
+                                                info.attachments[i].depth};
     auto framebuffer_info = vk::FramebufferCreateInfo{}
-                                .setAttachments(info.attachments[i])
+                                .setAttachments(attachments)
                                 .setWidth(info.extent.width)
                                 .setHeight(info.extent.height)
                                 .setLayers(1)
                                 .setRenderPass(renderpass);
 
-    framebuffer = info.core->device.createFramebuffer(framebuffer_info);
+    framebuffer = info.device.createFramebuffer(framebuffer_info);
   }
 }
 

@@ -1,10 +1,12 @@
 #include "core.hpp"
 #include "drawing.hpp"
+#include "geometry_pipeline.hpp"
 #include "geometry_primitives.hpp"
-#include "ensure.hpp"
 #include "graph.hpp"
 #include "memory_buffer.hpp"
 #include "presentation_context.hpp"
+#include "renderpass.hpp"
+#include "texture.hpp"
 #include "texture_storage.hpp"
 
 #include <SDL2/SDL.h>
@@ -15,12 +17,10 @@
 #include <ranges>
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan_core.h>
+#include <thread>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
-
-using namespace std::literals;
 
 auto poll_all_sdl_events() -> std::vector<SDL_Event> {
   std::vector<SDL_Event> events;
@@ -96,7 +96,7 @@ int main() {
   alex::presentation_context_info_t presentation_context_info;
   presentation_context_info.core = &core;
   presentation_context_info.surface = surface;
-  presentation_context_info.enable_vsync = true;
+  presentation_context_info.enable_vsync = false;
   int width{0};
   int height{0};
   SDL_GetWindowSize(window, &width, &height);
@@ -105,91 +105,70 @@ int main() {
   alex::presentation_context_t presentation_context;
   presentation_context.init(presentation_context_info, init_arena);
 
-  vk::Extent3D render_extent(presentation_context.window_extent.width,
-							 presentation_context.window_extent.height, 1);
+  alex::renderpass_info_t renderpass_info;
+  renderpass_info.core = &core;
+  renderpass_info.extent = presentation_context_info.window_extent;
 
-  auto geometry_color_attachment = alex::graph::resource_info_t{
-      .name = "geom-color",
-      .type = alex::graph::resource_type_t::attachment,
-      .attachment = alex::graph::attachment_resource_t{
-          .type = alex::graph::attachment_type_t::color,
-          .index = 0,
-          .format = vk::Format::eR8G8B8A8Unorm,
-          .extent = render_extent,
-          .aspect_flags = vk::ImageAspectFlagBits::eColor}};
+  alex::texture_info_t color_attachment_info;
+  color_attachment_info.physical_device = core.physical_device;
+  color_attachment_info.device = core.device;
+  color_attachment_info.format = vk::Format::eR8G8B8A8Srgb;
+  color_attachment_info.tiling = vk::ImageTiling::eOptimal;
+  color_attachment_info.extent = presentation_context_info.window_extent;
+  color_attachment_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
+  color_attachment_info.property_flags =
+      vk::MemoryPropertyFlagBits::eDeviceLocal;
+  color_attachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
+                                vk::ImageUsageFlagBits::eTransferSrc |
+                                vk::ImageUsageFlagBits::eSampled |
+                                vk::ImageUsageFlagBits::eColorAttachment;
 
-  auto geometry_depth_attachment = alex::graph::resource_info_t{
-      .name = "geom-depth",
-      .type = alex::graph::resource_type_t::attachment,
-      .attachment = alex::graph::attachment_resource_t{
-          .type = alex::graph::attachment_type_t::depth,
-          .index = 1,
-          .format = vk::Format::eD32Sfloat,
-          .extent = render_extent,
-          .aspect_flags = vk::ImageAspectFlagBits::eDepth}};
+  alex::flightframe_array_t<alex::texture_t> color_attachments;
+  color_attachments[0].init(color_attachment_info);
+  color_attachments[1].init(color_attachment_info);
 
-  auto all_resources = std::to_array(
-      {&geometry_depth_attachment, &geometry_color_attachment});
+  alex::texture_info_t depth_attachment_info;
+  depth_attachment_info.physical_device = core.physical_device;
+  depth_attachment_info.device = core.device;
+  depth_attachment_info.format = vk::Format::eD32Sfloat;
+  depth_attachment_info.tiling = vk::ImageTiling::eOptimal;
+  depth_attachment_info.extent = presentation_context_info.window_extent;
+  depth_attachment_info.aspect_flags = vk::ImageAspectFlagBits::eDepth;
+  depth_attachment_info.property_flags =
+      vk::MemoryPropertyFlagBits::eDeviceLocal;
+  depth_attachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
+                                vk::ImageUsageFlagBits::eTransferSrc |
+                                vk::ImageUsageFlagBits::eSampled |
+                                vk::ImageUsageFlagBits::eDepthStencilAttachment;
 
-  auto geometry_pass_inputs = std::to_array({"geom-color"sv, "geom-depth"sv});
+  alex::flightframe_array_t<alex::texture_t> depth_attachments;
+  depth_attachments[0].init(depth_attachment_info);
+  depth_attachments[1].init(depth_attachment_info);
 
-  alex::graph::framepass_info_t geometry_pass;
-  geometry_pass.name = "geometry-pass";
-  geometry_pass.inputs = geometry_pass_inputs;
-  geometry_pass.outputs = {};
-  geometry_pass.extent = render_extent;
-  float constexpr clearcolor = static_cast<float>(0x20) / 255;
-  geometry_pass.clearvalues = {
-      vk::ClearValue{}.setColor({clearcolor, clearcolor, clearcolor, 1.0f}),
-      vk::ClearValue{}.setDepthStencil({1.0f, 0}),
-  };
+  auto attachment0 = init_arena.allocate<vk::ImageView>(2);
+  ENSURE_NOT(attachment0.empty(), "out of memory")
+  attachment0[0] = color_attachments[0].view;
+  attachment0[1] = depth_attachments[0].view;
+  renderpass_info.attachments[0] = attachment0;
 
-  geometry_pass.load_op = vk::AttachmentLoadOp::eClear;
-  geometry_pass.vertex_program_path = "./geometry.vert.spv";
-  geometry_pass.fragment_program_path = "./geometry.frag.spv";
+  auto attachment1 = init_arena.allocate<vk::ImageView>(2);
+  ENSURE_NOT(attachment1.empty(), "out of memory")
+  attachment1[0] = color_attachments[1].view;
+  attachment1[1] = depth_attachments[1].view;
+  renderpass_info.attachments[1] = attachment1;
 
-  std::array<vk::DescriptorSetLayoutBinding,
-             1> constexpr frame_uniform_bindings{
-      vk::DescriptorSetLayoutBinding{}
-          .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-          .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-          .setBinding(0)
-          .setDescriptorCount(1)};
+  alex::renderpass_t geometry_renderpass;
+  geometry_renderpass.init(renderpass_info);
 
-  const auto uniform_setinfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setFlags(vk::DescriptorSetLayoutCreateFlags())
-          .setBindings(frame_uniform_bindings);
+  alex::geometry_pipeline_info_t geometry_pipeline_info;
+  geometry_pipeline_info.core = &core;
+  geometry_pipeline_info.renderpass = &geometry_renderpass;
+  geometry_pipeline_info.extent = presentation_context_info.window_extent;
+  geometry_pipeline_info.vertex_program_path = "./geometry.vert.spv";
+  geometry_pipeline_info.fragment_program_path = "./geometry.frag.spv";
 
-  std::array<vk::DescriptorSetLayout, 1> setlayouts;
-  setlayouts[0] =
-      core.device.createDescriptorSetLayout(uniform_setinfo, nullptr);
-
-  geometry_pass.set_layouts = setlayouts;
-
-  auto all_framepasses = std::to_array({&geometry_pass});
-
-  alex::texture_storage_info_t texture_storage_info;
-  texture_storage_info.capacity = 25;
-
-  alex::texture_storage_t texture_storage;
-  texture_storage.init(texture_storage_info, init_arena);
-
-  alex::graph::graph_info_t graph_info;
-  graph_info.physical_device = core.physical_device;
-  graph_info.device = core.device;
-  graph_info.framepass_infos = all_framepasses;
-  graph_info.resource_infos = all_resources;
-  graph_info.arena = &init_arena;
-  graph_info.texture_storage = &texture_storage;
-
-  alex::graph::graph_t graph;
-  graph.init(graph_info);
-  graph.debug_print();
-  graph.debug_graphviz();
-
-  ENSURE_NOT(texture_storage.find("geom-color").empty(), "could not find image in storage")
-  ENSURE_NOT(texture_storage.find("geom-depth").empty(), "could not find image in storage")
+  alex::geometry_pipeline_t geometry_pipeline;
+  geometry_pipeline.init(geometry_pipeline_info, init_arena);
 
   /* ****************************************
    * Initialization Commandbuffer Setup
@@ -306,6 +285,62 @@ int main() {
       core.device.waitForFences(init_fence, true, max_wait);
   ENSURE(init_wait_result == vk::Result::eSuccess, "could not wait for queue")
 
+  /* ****************************************
+   * DescriptorSets for Uniforms Setup
+   */
+  std::array<vk::DescriptorPoolSize, 2> sizes{
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eUniformBuffer)
+          .setDescriptorCount(10),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eStorageBuffer)
+          .setDescriptorCount(10),
+  };
+
+  const auto pool_info =
+      vk::DescriptorPoolCreateInfo{}
+          .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+          .setMaxSets(10)
+          .setPoolSizes(sizes);
+
+  vk::DescriptorPool descriptor_pool =
+      core.device.createDescriptorPool(pool_info, nullptr);
+
+  std::array<vk::DescriptorSetLayout, 2> set_layouts{
+      geometry_pipeline.setlayout, geometry_pipeline.setlayout};
+
+  const auto descriptorset_allocate_info =
+      vk::DescriptorSetAllocateInfo{}
+          .setDescriptorPool(descriptor_pool)
+          .setDescriptorSetCount(2)
+          .setSetLayouts(set_layouts);
+
+  std::vector<vk::DescriptorSet> uniform_sets =
+      core.device.allocateDescriptorSets(descriptorset_allocate_info);
+  ENSURE(uniform_sets.size() == 2, "could not allocate descriptor sets")
+
+  for (auto [i, uniform_set] : uniform_sets | std::views::enumerate) {
+    const auto descriptor_buffer_info = vk::DescriptorBufferInfo{}
+                                            .setBuffer(uniforms[i].buffer)
+                                            .setOffset(0)
+                                            .setRange(uniforms[i].memory_size);
+
+    const auto write_descriptor =
+        vk::WriteDescriptorSet{}
+            .setDstBinding(0)
+            .setDstSet(uniform_sets[i])
+            .setDstArrayElement(0)
+            .setDescriptorCount(1)
+            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+            // here images can be set aswell
+            .setBufferInfo(descriptor_buffer_info);
+
+    const uint32_t write_count = 1;
+    const uint32_t copy_count = 0;
+    core.device.updateDescriptorSets(write_count, &write_descriptor, copy_count,
+                                     nullptr);
+  }
+
   {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto time_ns = end_time - start_time;
@@ -342,22 +377,13 @@ int main() {
 
     alex::next_frame_info_t next_frame_info =
         presentation_context.wait_for_next_frame(core.device);
-
-    graph.record(next_frame_info);
-#if 0	
-	vk::CommandBuffer &commandbuffer = next_frame_info.presentation_commandbuffer;
-	commandbuffer.reset();
-	commandbuffer.begin(vk::CommandBufferBeginInfo{});
-
-
-	alex::graph::framepass_node_t* geometry = graph.find_node("geometry-pass");
-	ENSURE(geometry != nullptr, "could not find geometry node")
-    LOG_INFO("Recording geometry {}", geometry->name)
+    next_frame_info.presentation_commandbuffer.begin(
+        vk::CommandBufferBeginInfo{});
 
     const auto render_area =
         vk::Rect2D{}
             .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
-            .setExtent(vk::Extent2D(geometry->extent.width, geometry->extent.height));
+            .setExtent(geometry_pipeline.extent);
 
     float constexpr clearcolor = static_cast<float>(0x20) / 255;
     std::array<vk::ClearValue, 2> clearvalues{
@@ -367,25 +393,63 @@ int main() {
 
     const auto renderpass_begin_info =
         vk::RenderPassBeginInfo{}
-            .setRenderPass(geometry->renderpass)
-            .setFramebuffer(geometry->framebuffers[next_frame_info.flightframe])
+            .setRenderPass(geometry_renderpass.renderpass)
+            .setFramebuffer(
+                geometry_renderpass.framebuffers[next_frame_info.flightframe])
             .setRenderArea(render_area)
             .setClearValues(clearvalues);
 
-    commandbuffer.beginRenderPass(renderpass_begin_info,
-                                  vk::SubpassContents::eInline);
+    next_frame_info.presentation_commandbuffer.beginRenderPass(
+        renderpass_begin_info, vk::SubpassContents::eInline);
+    next_frame_info.presentation_commandbuffer.bindPipeline(
+        vk::PipelineBindPoint::eGraphics, geometry_pipeline.pipeline);
 
-    commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                               geometry->pipeline);
+    next_frame_info.presentation_commandbuffer.bindDescriptorSets(
+        vk::PipelineBindPoint::eGraphics, geometry_pipeline.layout, 0, 1,
+        &(uniform_sets.at(next_frame_info.flightframe)), 0, nullptr);
 
-    commandbuffer.endRenderPass();
-#endif
+    uint32_t constexpr first_binding{0};
+    std::array<vk::Buffer, 1> const buffers{cube_buffer.buffer};
+    std::array<vk::DeviceSize, 1> constexpr offsets{0};
+    next_frame_info.presentation_commandbuffer.bindVertexBuffers(
+        first_binding, buffers, offsets);
+
+    next_frame_info.presentation_commandbuffer.draw(
+        cube_draw_info.vertices_count, cube_draw_info.instance_count,
+        cube_draw_info.first_vertex, cube_draw_info.first_instance);
+
+    next_frame_info.presentation_commandbuffer.endRenderPass();
+
+    // Here we transfer the color attachment of the renderpass into
+    // transfersrc so we can blit it to the swapchain
+    auto range = vk::ImageSubresourceRange{}
+                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                     .setBaseMipLevel(0)
+                     .setLevelCount(1)
+                     .setBaseArrayLayer(0)
+                     .setLayerCount(1);
+
+    auto barrier =
+        vk::ImageMemoryBarrier{}
+            .setImage(color_attachments[next_frame_info.flightframe].image)
+            .setSubresourceRange(range)
+            .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+            .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+            .setDstAccessMask(vk::AccessFlags())
+            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+
+    next_frame_info.presentation_commandbuffer.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags(), nullptr,
+        nullptr, barrier);
 
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.source_offset_end = vk::Offset3D{
-        static_cast<std::int32_t>(geometry_color_attachment.attachment.extent.width),
-        static_cast<std::int32_t>(geometry_color_attachment.attachment.extent.height), 1};
+        static_cast<std::int32_t>(geometry_renderpass.extent.width),
+        static_cast<std::int32_t>(geometry_renderpass.extent.height), 1};
 
     presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.destination_offset_end = vk::Offset3D{
@@ -394,10 +458,8 @@ int main() {
         1};
 
     presentation_info.blit_filter = vk::Filter::eLinear;
-
-    std::span<alex::texture_t> final_images =
-        texture_storage.find("geom-color");
-    presentation_info.image = final_images[next_frame_info.flightframe].image;
+    presentation_info.image =
+        color_attachments[next_frame_info.flightframe].image;
     presentation_info.queue = core.queue;
     presentation_info.commandbuffer =
         next_frame_info.presentation_commandbuffer;
