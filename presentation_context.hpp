@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core.hpp"
+#include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 
 namespace alex {
@@ -27,6 +28,7 @@ struct presentation_info_t {
   vk::Offset3D destination_offset_end{0, 0, 0};
   vk::Filter blit_filter{vk::Filter::eLinear};
   vk::Image image;
+  vk::ImageLayout layout;
   vk::Queue queue;
   vk::CommandBuffer commandbuffer;
 };

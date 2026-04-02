@@ -45,13 +45,6 @@ void context_t::init(context_info_t &info, memory::arena &allocator) {
       "VK_LAYER_KHRONOS_validation",
   };
 
-  if (info.enable_validation) {
-    LOG_INFO("Loaded Validation Layers ({}):", validation_layers.size());
-    for (auto layer : validation_layers) {
-      LOG_INFO("  {}", layer);
-    }
-  }
-
   auto applicationInfo = vk::ApplicationInfo{}
                              .setPApplicationName(info.name.data())
                              .setPEngineName("engine")
@@ -63,6 +56,14 @@ void context_t::init(context_info_t &info, memory::arena &allocator) {
                                 .setPApplicationInfo(&applicationInfo)
                                 .setEnabledExtensionCount(extensions.length())
                                 .setPpEnabledExtensionNames(extensions.data());
+
+  if (info.enable_validation) {
+    LOG_INFO("Loaded Validation Layers ({}):", validation_layers.size());
+    for (auto layer : validation_layers) {
+      LOG_INFO("  {}", layer);
+    }
+    instanceCreateInfo.setPEnabledLayerNames(validation_layers);
+  }
 
   instance = vk::createInstance(instanceCreateInfo);
 }

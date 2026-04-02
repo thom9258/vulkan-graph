@@ -344,42 +344,6 @@ int main() {
         presentation_context.wait_for_next_frame(core.device);
 
     graph.record(next_frame_info);
-#if 0	
-	vk::CommandBuffer &commandbuffer = next_frame_info.presentation_commandbuffer;
-	commandbuffer.reset();
-	commandbuffer.begin(vk::CommandBufferBeginInfo{});
-
-
-	alex::graph::framepass_node_t* geometry = graph.find_node("geometry-pass");
-	ENSURE(geometry != nullptr, "could not find geometry node")
-    LOG_INFO("Recording geometry {}", geometry->name)
-
-    const auto render_area =
-        vk::Rect2D{}
-            .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
-            .setExtent(vk::Extent2D(geometry->extent.width, geometry->extent.height));
-
-    float constexpr clearcolor = static_cast<float>(0x20) / 255;
-    std::array<vk::ClearValue, 2> clearvalues{
-        vk::ClearValue{}.setColor({clearcolor, clearcolor, clearcolor, 1.0f}),
-        vk::ClearValue{}.setDepthStencil({1.0f, 0}),
-    };
-
-    const auto renderpass_begin_info =
-        vk::RenderPassBeginInfo{}
-            .setRenderPass(geometry->renderpass)
-            .setFramebuffer(geometry->framebuffers[next_frame_info.flightframe])
-            .setRenderArea(render_area)
-            .setClearValues(clearvalues);
-
-    commandbuffer.beginRenderPass(renderpass_begin_info,
-                                  vk::SubpassContents::eInline);
-
-    commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                               geometry->pipeline);
-
-    commandbuffer.endRenderPass();
-#endif
 
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
@@ -397,7 +361,9 @@ int main() {
 
     std::span<alex::texture_t> final_images =
         texture_storage.find("geom-color");
+
     presentation_info.image = final_images[next_frame_info.flightframe].image;
+    presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
     presentation_info.queue = core.queue;
     presentation_info.commandbuffer =
         next_frame_info.presentation_commandbuffer;

@@ -106,7 +106,7 @@ int main() {
   presentation_context.init(presentation_context_info, init_arena);
 
   alex::renderpass_info_t renderpass_info;
-  renderpass_info.core = &core;
+  renderpass_info.device = core.device;
   renderpass_info.extent = presentation_context_info.window_extent;
 
   alex::texture_info_t color_attachment_info;
@@ -147,15 +147,13 @@ int main() {
 
   auto attachment0 = init_arena.allocate<vk::ImageView>(2);
   ENSURE_NOT(attachment0.empty(), "out of memory")
-  attachment0[0] = color_attachments[0].view;
-  attachment0[1] = depth_attachments[0].view;
-  renderpass_info.attachments[0] = attachment0;
+  renderpass_info.attachments[0].color = color_attachments[0].view;
+  renderpass_info.attachments[0].depth = depth_attachments[0].view;
 
   auto attachment1 = init_arena.allocate<vk::ImageView>(2);
   ENSURE_NOT(attachment1.empty(), "out of memory")
-  attachment1[0] = color_attachments[1].view;
-  attachment1[1] = depth_attachments[1].view;
-  renderpass_info.attachments[1] = attachment1;
+  renderpass_info.attachments[1].color = color_attachments[1].view;
+  renderpass_info.attachments[1].depth = depth_attachments[1].view;
 
   alex::renderpass_t geometry_renderpass;
   geometry_renderpass.init(renderpass_info);

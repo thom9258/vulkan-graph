@@ -113,12 +113,8 @@ void graph_t::connect_node_dependencies() {
                  output->producer->name)
         continue;
       }
-      //     ENSURE(output->producer == nullptr, "output {} already has producer
-      //     {}",
-      //            output->name, output->producer->name);
 
       output->producer = m_nodes[i];
-
       m_nodes[i]->dependencies.put(output->producer);
       LOG_INFO("added dependency {} to framepass {}", output->name,
                m_nodes[i]->name)
@@ -251,38 +247,39 @@ void graph_t::create_framepass_resources(graph_info_t &info) {
       LOG_INFO("created texture resource {} texture size {}/{}", resource->name,
                resource->texture.extent.width, resource->texture.extent.height)
     } else if (resource->type == resource_type_t::attachment) {
-      texture_info_t texture_info;
-      texture_info.physical_device = info.physical_device;
-      texture_info.device = info.device;
-      texture_info.extent.setWidth(resource->attachment.extent.width)
+
+      texture_info_t attachment_info;
+      attachment_info.physical_device = info.physical_device;
+      attachment_info.device = info.device;
+      attachment_info.extent.setWidth(resource->attachment.extent.width)
           .setHeight(resource->attachment.extent.height);
 
-      texture_info.format = resource->attachment.format;
-      texture_info.tiling = vk::ImageTiling::eOptimal;
-      texture_info.aspect_flags = resource->attachment.aspect_flags;
-      texture_info.property_flags = vk::MemoryPropertyFlagBits::eDeviceLocal;
-      texture_info.usage = vk::ImageUsageFlagBits::eTransferDst |
-                           vk::ImageUsageFlagBits::eTransferSrc |
-                           vk::ImageUsageFlagBits::eSampled;
+      attachment_info.format = resource->attachment.format;
+      attachment_info.tiling = vk::ImageTiling::eOptimal;
+      attachment_info.aspect_flags = resource->attachment.aspect_flags;
+      attachment_info.property_flags = vk::MemoryPropertyFlagBits::eDeviceLocal;
+      attachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
+                              vk::ImageUsageFlagBits::eTransferSrc |
+                              vk::ImageUsageFlagBits::eSampled;
 
-      if (texture_info.aspect_flags & vk::ImageAspectFlagBits::eColor) {
-        texture_info.usage |= vk::ImageUsageFlagBits::eColorAttachment;
-      } else if (texture_info.aspect_flags & vk::ImageAspectFlagBits::eDepth) {
-        texture_info.usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+      if (resource->attachment.type == attachment_type_t::color) {
+        attachment_info.usage |= vk::ImageUsageFlagBits::eColorAttachment;
+      } else if (resource->attachment.type == attachment_type_t::depth) {
+        attachment_info.usage |=
+            vk::ImageUsageFlagBits::eDepthStencilAttachment;
       }
 
-      std::span<texture_t> textures =
+      std::span<texture_t> attachments =
           m_arena->allocate<texture_t>(frames_in_flight);
-      ENSURE_NOT(textures.empty(), "arena full")
-      for (texture_t &texture : textures) {
-        texture.init(texture_info);
+      ENSURE_NOT(attachments.empty(), "arena full")
+      for (texture_t &attachment : attachments) {
+        attachment.init(attachment_info);
       }
 
-      m_texture_storage->add(resource->name, textures);
-
-      LOG_INFO("created attachment resource {} texture size {}/{}",
+      m_texture_storage->add(resource->name, attachments);
+      LOG_INFO("created attachment resource {} texture size {}/{} count {}",
                resource->name, resource->attachment.extent.width,
-               resource->attachment.extent.height)
+               resource->attachment.extent.height, attachments.size())
 
     } else if (resource->type == resource_type_t::memory_buffer) {
       ENSURE(false, "memory_buffer not supported yet")
@@ -386,10 +383,11 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
                                     .setDependencies(dependencies)
                                     .setSubpasses(subpass);
 
-    vk::Result result = info.device.createRenderPass(&renderPassCreateInfo, nullptr, &m_nodes[i]->renderpass);
+    vk::Result result = info.device.createRenderPass(
+        &renderPassCreateInfo, nullptr, &m_nodes[i]->renderpass);
 
-	ENSURE(result == vk::Result::eSuccess, "could not create renderpass")
-	LOG_INFO("Created renderpass for node {}", m_nodes[i]->name)
+    ENSURE(result == vk::Result::eSuccess, "could not create renderpass")
+    LOG_INFO("Created renderpass for node {}", m_nodes[i]->name)
 
     std::span<texture_t> color_attachments =
         m_texture_storage->find(color_attachment_resource->name);
@@ -408,7 +406,7 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
     LOG_INFO("node {} color/depth framebuffer {}/{}", m_nodes[i]->name,
              color_attachment_resource->name, depth_attachment_resource->name)
 
-    for (vk::Framebuffer& framebuffer : m_nodes[i]->framebuffers) {
+    for (vk::Framebuffer &framebuffer : m_nodes[i]->framebuffers) {
       std::array<vk::ImageView, 2> attachments = {color_attachments[i].view,
                                                   depth_attachments[i].view};
       auto framebuffer_info =
@@ -418,10 +416,11 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
               .setHeight(color_attachment_resource->attachment.extent.height)
               .setLayers(1)
               .setRenderPass(m_nodes[i]->renderpass);
-	  
-       vk::Result result = info.device.createFramebuffer(&framebuffer_info, nullptr, &framebuffer);
-	   ENSURE(result == vk::Result::eSuccess, "could not allocate framebuffers")
-	  LOG_INFO("created framebuffer for node {}", m_nodes[i]->name)
+
+      vk::Result result = info.device.createFramebuffer(&framebuffer_info,
+                                                        nullptr, &framebuffer);
+      ENSURE(result == vk::Result::eSuccess, "could not allocate framebuffers")
+      LOG_INFO("created framebuffer for node {}", m_nodes[i]->name)
     }
   }
 }
@@ -618,9 +617,10 @@ void graph_t::create_framepass_pipelines(graph_info_t &info) {
     vk::ResultValue<vk::Pipeline> result =
         info.device.createGraphicsPipeline(nullptr, graphicsPipelineCreateInfo);
 
-    ENSURE(result.result == vk::Result::eSuccess, "Could not create graphics pipeline")
+    ENSURE(result.result == vk::Result::eSuccess,
+           "Could not create graphics pipeline")
     m_nodes[i]->pipeline = result.value;
-	LOG_INFO("Created graphics pipeline for node {}", m_nodes[i]->name)
+    LOG_INFO("Created graphics pipeline for node {}", m_nodes[i]->name)
   }
 }
 
@@ -641,9 +641,55 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
 
   for (framepass_node_t *node : starters.span()) {
     ENSURE(node != nullptr, "found nullptr node")
-    LOG_INFO("Recording node {}", node->name)
-    LOG_INFO("    node extent {}/{}", node->extent.width, node->extent.height)
-    LOG_INFO("    flightframe {}", next_frame.flightframe)
+
+
+    for (framepass_resource_t *input : node->inputs.span()) {
+      std::span<texture_t> textures = m_texture_storage->find(input->name);
+      ENSURE_NOT(textures.empty(),
+                 "could not find output textures for framepass output {}",
+                 input->name)
+
+      vk::ImageAspectFlags aspect_mask = vk::ImageAspectFlags();
+      vk::ImageLayout new_layout = vk::ImageLayout::eReadOnlyOptimal;
+      if (input->type == resource_type_t::attachment) {
+        if (input->attachment.type == attachment_type_t::color) {
+          new_layout = vk::ImageLayout::eColorAttachmentOptimal;
+          aspect_mask |= vk::ImageAspectFlagBits::eColor;
+        } else if (input->attachment.type == attachment_type_t::depth) {
+          new_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+          aspect_mask |= vk::ImageAspectFlagBits::eDepth;
+        }
+      }
+
+      // TODO: entirety of range and also layouts in barrier can just be stored
+      // in the resosurce itself
+      auto range = vk::ImageSubresourceRange{}
+                       .setAspectMask(aspect_mask)
+                       .setBaseMipLevel(0)
+                       .setLevelCount(1)
+                       .setBaseArrayLayer(0)
+                       .setLayerCount(1);
+
+      auto barrier = vk::ImageMemoryBarrier{}
+                         .setImage(textures[next_frame.flightframe].image)
+                         .setSubresourceRange(range)
+                         .setOldLayout(input->layout)
+                         .setNewLayout(new_layout)
+                         .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+                         .setDstAccessMask(vk::AccessFlags())
+                         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+
+      commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                    vk::PipelineStageFlagBits::eTransfer,
+                                    vk::DependencyFlags(), nullptr, nullptr,
+                                    barrier);
+    }
+
+    //   LOG_INFO("Recording node {}", node->name)
+    //   LOG_INFO("    node extent {}/{}", node->extent.width,
+    //   node->extent.height) LOG_INFO("    flightframe {}",
+    //   next_frame.flightframe)
 
     const auto render_area =
         vk::Rect2D{}
@@ -656,9 +702,10 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
         vk::ClearValue{}.setDepthStencil({1.0f, 0}),
     };
 
-	ENSURE(node->renderpass != VK_NULL_HANDLE, "renderpass is nullhandle for node {}", node->name)
-	ENSURE(node->framebuffers[next_frame.flightframe] != VK_NULL_HANDLE, "framebuffer is nullhandle for node {}", node->name)
-
+    ENSURE(node->renderpass != VK_NULL_HANDLE,
+           "renderpass is nullhandle for node {}", node->name)
+    ENSURE(node->framebuffers[next_frame.flightframe] != VK_NULL_HANDLE,
+           "framebuffer is nullhandle for node {}", node->name)
 
     const auto renderpass_begin_info =
         vk::RenderPassBeginInfo{}
@@ -675,26 +722,38 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
 
     commandbuffer.endRenderPass();
 
-    auto range = vk::ImageSubresourceRange{}
-                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                     .setBaseMipLevel(0)
-                     .setLevelCount(1)
-                     .setBaseArrayLayer(0)
-                     .setLayerCount(1);
-
+#if 0
     for (framepass_resource_t *output : node->outputs.span()) {
-      LOG_INFO("Finding textures for framepass {} output {}", node->name,
-               output->name)
-
       std::span<texture_t> textures = m_texture_storage->find(output->name);
       ENSURE_NOT(textures.empty(),
                  "could not find output textures for framepass output {}",
                  output->name)
 
+      vk::ImageAspectFlags aspect_mask = vk::ImageAspectFlags();
+      vk::ImageLayout old_layout = vk::ImageLayout::eReadOnlyOptimal;
+      if (output->type == resource_type_t::attachment) {
+        if (output->attachment.type == attachment_type_t::color) {
+          old_layout = vk::ImageLayout::eColorAttachmentOptimal;
+          aspect_mask |= vk::ImageAspectFlagBits::eColor;
+        } else if (output->attachment.type == attachment_type_t::depth) {
+          old_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+          aspect_mask |= vk::ImageAspectFlagBits::eDepth;
+        }
+      }
+
+      // TODO: entirety of range and also layouts in barrier can just be stored
+      // in the resosurce itself
+      auto range = vk::ImageSubresourceRange{}
+                       .setAspectMask(aspect_mask)
+                       .setBaseMipLevel(0)
+                       .setLevelCount(1)
+                       .setBaseArrayLayer(0)
+                       .setLayerCount(1);
+
       auto barrier = vk::ImageMemoryBarrier{}
                          .setImage(textures[next_frame.flightframe].image)
                          .setSubresourceRange(range)
-                         .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
+                         .setOldLayout(old_layout)
                          .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
                          .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
                          .setDstAccessMask(vk::AccessFlags())
@@ -706,6 +765,7 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
                                     vk::DependencyFlags(), nullptr, nullptr,
                                     barrier);
     }
+	#endif
   }
 }
 

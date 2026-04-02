@@ -56,8 +56,8 @@ struct framepass_resource_t {
   std::string_view name{""};
   std::uint32_t reference_count{0};
   framepass_node_t *producer{nullptr};
-
   resource_type_t type;
+  vk::ImageLayout layout{vk::ImageLayout::eUndefined};
   union {
     texture_resource_t texture;
     attachment_resource_t attachment;

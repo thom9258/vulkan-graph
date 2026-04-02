@@ -226,27 +226,53 @@ presentation_context_t::wait_for_next_frame(vk::Device device) {
 // TODO: this goes into "presentation" job
 void presentation_context_t::present(presentation_info_t &info) {
 
-  auto range = vk::ImageSubresourceRange{}
-                   .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                   .setBaseMipLevel(0)
-                   .setLevelCount(1)
-                   .setBaseArrayLayer(0)
-                   .setLayerCount(1);
+  {
+    auto range = vk::ImageSubresourceRange{}
+                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                     .setBaseMipLevel(0)
+                     .setLevelCount(1)
+                     .setBaseArrayLayer(0)
+                     .setLayerCount(1);
 
-  auto barrier = vk::ImageMemoryBarrier{}
-                     .setImage(images[sync.image_index])
-                     .setSubresourceRange(range)
-                     .setOldLayout(vk::ImageLayout::eUndefined)
-                     .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-                     .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
-                     .setDstAccessMask(vk::AccessFlags())
-                     .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-                     .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+    auto barrier = vk::ImageMemoryBarrier{}
+                       .setImage(images[sync.image_index])
+                       .setSubresourceRange(range)
+                       .setOldLayout(vk::ImageLayout::eUndefined)
+                       .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+                       .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+                       .setDstAccessMask(vk::AccessFlags())
+                       .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                       .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
 
-  info.commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                                     vk::PipelineStageFlagBits::eTransfer,
-                                     vk::DependencyFlags(), nullptr, nullptr,
-                                     barrier);
+    info.commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                       vk::PipelineStageFlagBits::eTransfer,
+                                       vk::DependencyFlags(), nullptr, nullptr,
+                                       barrier);
+  }
+
+  {
+    auto range = vk::ImageSubresourceRange{}
+                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                     .setBaseMipLevel(0)
+                     .setLevelCount(1)
+                     .setBaseArrayLayer(0)
+                     .setLayerCount(1);
+
+    auto barrier = vk::ImageMemoryBarrier{}
+                       .setImage(info.image)
+                       .setSubresourceRange(range)
+                       .setOldLayout(info.layout)
+                       .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+                       .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+                       .setDstAccessMask(vk::AccessFlags())
+                       .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                       .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+
+    info.commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                       vk::PipelineStageFlagBits::eTransfer,
+                                       vk::DependencyFlags(), nullptr, nullptr,
+                                       barrier);
+  }
 
   auto src_subresource = vk::ImageSubresourceLayers{}
                              .setAspectMask(vk::ImageAspectFlagBits::eColor)
