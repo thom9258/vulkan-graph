@@ -1,21 +1,63 @@
-#include "renderpass.hpp"
+#include "renderpass_builder.hpp"
+#include <vulkan/vulkan_structs.hpp>
 
 #include <ranges>
 
-namespace alex {
+namespace alex::graph {
 
-void renderpass_t::init(renderpass_info_t &info) {
-  constexpr auto render_format = vk::Format::eR8G8B8A8Srgb;
-  constexpr auto depth_format = vk::Format::eD32Sfloat;
+geometrypass_info_t::geometrypass_info_t(vk::Device device) : device{device} {}
 
-  extent = info.extent;
+geometrypass_info_t &geometrypass_info_t::set_extent(vk::Extent3D extent) {
+  this->extent = extent;
+  return *this;
+}
+
+geometrypass_info_t &geometrypass_info_t::set_color_attachments(
+    flightframe_array_t<vk::ImageView> attachments) {
+  color_attachments = attachments;
+  return *this;
+}
+
+geometrypass_info_t &geometrypass_info_t::set_depth_attachments(
+    flightframe_array_t<vk::ImageView> attachments) {
+  depth_attachments = attachments;
+  return *this;
+}
+
+geometrypass_info_t &geometrypass_info_t::set_color_format(vk::Format format) {
+  color_format = format;
+  return *this;
+}
+
+geometrypass_info_t &geometrypass_info_t::set_depth_format(vk::Format format) {
+  depth_format = format;
+  return *this;
+}
+
+geometrypass_info_t &
+geometrypass_info_t::set_color_clearvalue(float r, float g, float b, float a) {
+  clearvalues[0] = vk::ClearValue{}.setColor({r, g, b, a});
+  return *this;
+}
+
+geometrypass_info_t &geometrypass_info_t::set_depth_clearvalue(float d) {
+  clearvalues[1] = vk::ClearValue{}.setDepthStencil({d, 0});
+  return *this;
+}
+
+geometrypass_info_t &geometrypass_info_t::set_loadop(vk::AttachmentLoadOp op) {
+  load_op = op;
+  return *this;
+}
+
+geometrypass_t::geometrypass_t(geometrypass_info_t &info) {
 
   const auto color_attachment =
       vk::AttachmentDescription{}
           .setFlags(vk::AttachmentDescriptionFlags())
-          .setFormat(render_format)
+          .setFormat(info.color_format)
           .setSamples(vk::SampleCountFlagBits::e1)
-          .setLoadOp(vk::AttachmentLoadOp::eClear)
+          .setLoadOp(info.load_op)
           .setStoreOp(vk::AttachmentStoreOp::eStore)
           .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
           .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
@@ -27,9 +69,9 @@ void renderpass_t::init(renderpass_info_t &info) {
   const auto depth_attachment =
       vk::AttachmentDescription{}
           .setFlags(vk::AttachmentDescriptionFlags())
-          .setFormat(depth_format)
+          .setFormat(info.depth_format)
           .setSamples(vk::SampleCountFlagBits::e1)
-          .setLoadOp(vk::AttachmentLoadOp::eClear)
+          .setLoadOp(info.load_op)
           .setStoreOp(vk::AttachmentStoreOp::eDontCare)
           .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
           .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
@@ -54,8 +96,7 @@ void renderpass_t::init(renderpass_info_t &info) {
                      .setColorAttachments(color_reference)
                      .setPDepthStencilAttachment(&depth_reference);
 
-  // @note we could also specify color and depth dependencies seperately
-  //       and put them together in the renderpass as an array
+
   auto color_depth_dependency =
       vk::SubpassDependency{}
           .setSrcSubpass(vk::SubpassExternal)
@@ -79,10 +120,10 @@ void renderpass_t::init(renderpass_info_t &info) {
                                   .setSubpasses(subpass);
 
   renderpass = info.device.createRenderPass(renderPassCreateInfo);
-
   for (auto [i, framebuffer] : framebuffers | std::views::enumerate) {
-    std::array<vk::ImageView, 2> attachments = {info.attachments[i].color,
-                                                info.attachments[i].depth};
+
+    std::array<vk::ImageView, 2> attachments = {info.color_attachments[i],
+                                                info.depth_attachments[i]};
     auto framebuffer_info = vk::FramebufferCreateInfo{}
                                 .setAttachments(attachments)
                                 .setWidth(info.extent.width)
@@ -92,6 +133,7 @@ void renderpass_t::init(renderpass_info_t &info) {
 
     framebuffer = info.device.createFramebuffer(framebuffer_info);
   }
+ 
 }
 
-} // namespace alex
+} // namespace alex::graph

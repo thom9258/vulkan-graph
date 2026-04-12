@@ -17,11 +17,15 @@
 
 namespace alex::graph {
 
+resource_t::resource_t(std::string_view name, texture_info_t texture)
+    : name{name}, resource{texture} {}
+
+resource_t::resource_t(std::string_view name, attachment_info_t attachment)
+    : name{name}, resource{attachment} {}
+
 graph_t::graph_t(graph_info_t &info, memory::arena &arena) {
   ENSURE_NOT(info.framepass_infos.empty(), "must have renderpass infos");
-  ENSURE_NOT(info.resource_infos.empty(), "must have resource infos");
-
-  init_framepass_resources(info);
+  init_resources(info);
   init_framepass_nodes(info);
   connect_node_dependencies(info);
   connect_node_parents();
@@ -31,19 +35,21 @@ graph_t::graph_t(graph_info_t &info, memory::arena &arena) {
 
   create_framepass_resources(info);
   create_framepass_renderpasses(info);
-  create_framepass_pipelines(info, arena);
+//  create_framepass_pipelines(info, arena);
 }
 
-void graph_t::init_framepass_resources(graph_info_t &info) {
-  for (resource_info_t &resource_info : info.resource_infos) {
-    m_resources.push_back(std::make_unique<framepass_resource_t>());
-    m_resources.back()->name = resource_info.name;
-    m_resources.back()->resource = resource_info.resource;
+void graph_t::init_resources(graph_info_t &info) {
+  for (texture_info_t &info : info.texture_infos) {
+    m_resources.push_back(std::make_unique<resource_t>(info.name, info));
+  }
+
+  for (attachment_info_t &info : info.attachment_infos) {
+    m_resources.push_back(std::make_unique<resource_t>(info.name, info));
   }
 }
 
-framepass_node_t *graph_t::find_node(std::string_view name) {
-  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+renderpass_node_t *graph_t::find_node(std::string_view name) {
+  for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     if (node != nullptr && node->name == name) {
       return node.get();
     }
@@ -52,8 +58,8 @@ framepass_node_t *graph_t::find_node(std::string_view name) {
   return nullptr;
 }
 
-framepass_resource_t *graph_t::find_resource(std::string_view name) {
-  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+resource_t *graph_t::find_resource(std::string_view name) {
+  for (std::unique_ptr<resource_t> &resource : m_resources) {
     if (resource != nullptr && resource->name == name) {
       return resource.get();
     }
@@ -62,9 +68,24 @@ framepass_resource_t *graph_t::find_resource(std::string_view name) {
   return nullptr;
 }
 
+flightframe_array_t<vk::ImageView>
+graph_t::get_attachment_views(std::string_view name) {
+  std::span<texture_t> textures = m_texture_storage.find(name);
+  if (textures.empty()) {
+    return {};
+  }
+
+  flightframe_array_t<vk::ImageView> views;
+  for (const auto & [i, texture] : textures | std::views::enumerate) {
+	  views[i] = texture.view;
+  }
+
+  return views;
+}
+
 void graph_t::init_framepass_nodes(graph_info_t &info) {
-  for (framepass_info_t &framepass_info : info.framepass_infos) {
-    m_nodes.push_back(std::make_unique<framepass_node_t>());
+  for (renderpass_info_t &framepass_info : info.framepass_infos) {
+    m_nodes.push_back(std::make_unique<renderpass_node_t>());
     m_nodes.back()->name = framepass_info.name;
     m_nodes.back()->record_callback = framepass_info.record_callback;
     m_nodes.back()->extent = framepass_info.extent;
@@ -73,16 +94,16 @@ void graph_t::init_framepass_nodes(graph_info_t &info) {
       m_nodes.back()->color_attachment =
           find_resource(framepass_info.color_attachment.value());
       ENSURE(m_nodes.back()->color_attachment != nullptr,
-             "could not find specified color attachment for node {}",
-             m_nodes.back()->name)
+             "could not find specified color attachment {} for node {}",
+             framepass_info.color_attachment.value(), m_nodes.back()->name)
     }
 
     if (framepass_info.depth_attachment.has_value()) {
       m_nodes.back()->depth_attachment =
           find_resource(framepass_info.depth_attachment.value());
       ENSURE(m_nodes.back()->depth_attachment != nullptr,
-             "could not find specified depth attachment for node {}",
-             m_nodes.back()->name)
+             "could not find specified depth attachment {} for node {}",
+             framepass_info.depth_attachment.value(), m_nodes.back()->name)
     }
 
     m_nodes.back()->vertex_program_path = framepass_info.vertex_program_path;
@@ -90,15 +111,15 @@ void graph_t::init_framepass_nodes(graph_info_t &info) {
         framepass_info.fragment_program_path;
     m_nodes.back()->set_layouts = framepass_info.set_layouts;
 
-    for (framepass_info_t::name_and_usage_t &input : framepass_info.inputs) {
-      framepass_resource_t *resource = find_resource(input.name);
+    for (renderpass_info_t::name_and_usage_t &input : framepass_info.inputs) {
+      resource_t *resource = find_resource(input.name);
       ENSURE(resource != nullptr, "could not find resource")
       m_nodes.back()->inputs.push_back(resource);
       resource->reference_count++;
     }
 
     for (std::string_view output : framepass_info.outputs) {
-      framepass_resource_t *resource = find_resource(output);
+      resource_t *resource = find_resource(output);
       m_nodes.back()->outputs.push_back(resource);
     }
   }
@@ -108,7 +129,7 @@ void graph_t::prune_unused_resources() {
   decltype(m_resources) used;
   used.reserve((m_resources.size()));
 
-  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+  for (std::unique_ptr<resource_t> &resource : m_resources) {
     if (resource != nullptr && resource->reference_count > 0) {
       used.push_back(std::move(resource));
     }
@@ -121,7 +142,7 @@ void graph_t::prune_unused_nodes() {
   // decltype(m_nodes) used;
   // used.reserve((m_nodes.size()));
   //
-  // for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+  // for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
   //   if (node != nullptr && node->inputs.size() > 1 &&
   //       node->outputs.size() < 1) {
   //     used.push_back(std::move(node));
@@ -132,11 +153,11 @@ void graph_t::prune_unused_nodes() {
 }
 
 void graph_t::connect_node_dependencies(graph_info_t &info) {
-  for (framepass_info_t &framepass_info : info.framepass_infos) {
-    framepass_node_t *framepass = find_node(framepass_info.name);
+  for (renderpass_info_t &framepass_info : info.framepass_infos) {
+    renderpass_node_t *framepass = find_node(framepass_info.name);
     ENSURE(framepass != nullptr, "nullptr node")
     for (std::string &dependency_name : framepass_info.dependencies) {
-      framepass_node_t *dependency = find_node(dependency_name);
+      renderpass_node_t *dependency = find_node(dependency_name);
       ENSURE(dependency != nullptr, "nullptr dependency for node {}",
              framepass->name)
       framepass->dependencies.push_back(dependency);
@@ -145,9 +166,9 @@ void graph_t::connect_node_dependencies(graph_info_t &info) {
 }
 
 void graph_t::connect_node_parents() {
-  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+  for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node");
-    for (framepass_node_t *dependency : node->dependencies) {
+    for (renderpass_node_t *dependency : node->dependencies) {
       ENSURE(dependency != nullptr,
              "found nullptr dependency specified by node {}", node->name);
       dependency->parents.push_back(node.get());
@@ -156,41 +177,41 @@ void graph_t::connect_node_parents() {
 }
 
 void graph_t::print_execution_order(std::ostream &os) {
-  std::println("nodes:");
-  for (std::unique_ptr<framepass_node_t> &current : m_nodes) {
-    std::println("\t{}:", current->name);
+  std::println(os, "nodes:");
+  for (std::unique_ptr<renderpass_node_t> &current : m_nodes) {
+    std::println(os, "\t{}:", current->name);
 
     if (!current->inputs.empty()) {
-      std::print("\t\tin: [ ");
-      for (framepass_resource_t *input : current->inputs) {
-        std::print("{} ", input->name);
+      std::print(os, "\t\tin: [ ");
+      for (resource_t *input : current->inputs) {
+        std::print(os, "{} ", input->name);
       }
-      std::println("]");
+      std::println(os, "]");
     }
 
     if (!current->outputs.empty()) {
-      std::print("\t\tout: [ ");
-      for (framepass_resource_t *output : current->outputs) {
-        std::print("{} ", output->name);
+      std::print(os, "\t\tout: [ ");
+      for (resource_t *output : current->outputs) {
+        std::print(os, "{} ", output->name);
       }
-      std::println("]");
+      std::println(os, "]");
     }
 
     if (!current->dependencies.empty()) {
-      std::print("\t\tdepends on: [ ");
-      for (framepass_node_t *edge : current->dependencies) {
-        std::print("{} ", edge->name);
+      std::print(os, "\t\tdepends on: [ ");
+      for (renderpass_node_t *edge : current->dependencies) {
+        std::print(os, "{} ", edge->name);
       }
-      std::println("]");
+      std::println(os, "]");
     }
 
     if (current->color_attachment != nullptr) {
-      std::println("\t\tcolor attachment: [ {} ]",
+      std::println(os, "\t\tcolor attachment: [ {} ]",
                    current->color_attachment->name);
     }
 
     if (current->depth_attachment != nullptr) {
-      std::println("\t\tdepth attachment: [ {} ]",
+      std::println(os, "\t\tdepth attachment: [ {} ]",
                    current->depth_attachment->name);
     }
   }
@@ -213,7 +234,7 @@ static constexpr std::string_view const dependency_arrow = "";
 void graph_t::print_graphviz(std::ostream &os) {
   std::println(os, "digraph R {{");
 
-  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+  for (std::unique_ptr<resource_t> &resource : m_resources) {
     ENSURE(resource != nullptr, "found nullptr resource")
     std::string_view node_style = traits::resource_node;
     if (std::holds_alternative<attachment_info_t>(resource->resource)) {
@@ -223,12 +244,12 @@ void graph_t::print_graphviz(std::ostream &os) {
     std::println(os, "\t\"{}\" {}", resource->name, node_style);
   }
 
-  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+  for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
     std::println(os, "\t\"{}\" {}", node->name, traits::framepass_node);
   }
 
-  for (std::unique_ptr<framepass_node_t> &current : m_nodes) {
+  for (std::unique_ptr<renderpass_node_t> &current : m_nodes) {
     if (current->color_attachment != nullptr) {
       std::println(os, "\t\"{}\" -> \"{}\" {}", current->name,
                    current->color_attachment->name, traits::attachment_arrow);
@@ -239,19 +260,19 @@ void graph_t::print_graphviz(std::ostream &os) {
                    current->depth_attachment->name, traits::attachment_arrow);
     }
 
-    for (framepass_resource_t *input : current->inputs) {
+    for (resource_t *input : current->inputs) {
       ENSURE(input != nullptr, "found nullptr input")
       std::println(os, "\t\"{}\" -> \"{}\" {}", input->name, current->name,
                    traits::input_resource_arrow);
     }
 
-    for (framepass_resource_t *output : current->outputs) {
+    for (resource_t *output : current->outputs) {
       ENSURE(output != nullptr, "found nullptr output")
       std::println(os, "\t\"{}\" -> \"{}\" {}", current->name, output->name,
                    traits::output_resource_arrow);
     }
 
-    for (framepass_node_t *dependency : current->dependencies) {
+    for (renderpass_node_t *dependency : current->dependencies) {
       ENSURE(dependency != nullptr, "found nullptr dependency for {}",
              current->name)
       std::println(os, "\t\"{}\" -> \"{}\" {}", dependency->name, current->name,
@@ -263,7 +284,7 @@ void graph_t::print_graphviz(std::ostream &os) {
 }
 
 void graph_t::create_framepass_resources(graph_info_t &info) {
-  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+  for (std::unique_ptr<resource_t> &resource : m_resources) {
     if (auto *texture = std::get_if<texture_info_t>(&resource->resource)) {
       alex::texture_info_t texture_info;
       texture_info.physical_device = info.physical_device;
@@ -324,7 +345,7 @@ void graph_t::create_framepass_resources(graph_info_t &info) {
 }
 
 void graph_t::create_framepass_renderpasses(graph_info_t &info) {
-  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+  for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
 
     struct attachment_t {
@@ -492,9 +513,10 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
   }
 }
 
+#if 0
 void graph_t::create_framepass_pipelines(graph_info_t &info,
                                          memory::arena &arena) {
-  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+  for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
 
     auto vertex_source = read_spirv_source(node->vertex_program_path, arena);
@@ -689,6 +711,7 @@ void graph_t::create_framepass_pipelines(graph_info_t &info,
     LOG_INFO("Created graphics pipeline for node {}", node->name)
   }
 }
+#endif
 
 void graph_t::record(alex::next_frame_info_t &next_frame) {
 
@@ -696,11 +719,11 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
   commandbuffer.reset();
   commandbuffer.begin(vk::CommandBufferBeginInfo{});
 
-  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+  for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
 
 #if 0    
-    for (framepass_resource_t *input : node->inputs) {
+    for (resource_t *input : node->inputs) {
       std::span<texture_t> textures = m_texture_storage.find(input->name);
       ENSURE_NOT(textures.empty(),
                  "could not find output textures for framepass output {}",
@@ -773,11 +796,11 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
     commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                node->pipeline);
 
-	renderpass_record_info_t record_info;
-	record_info.commandbuffer = commandbuffer;
-	record_info.flightframe = next_frame.flightframe;
+    renderpass_record_info_t record_info;
+    record_info.commandbuffer = commandbuffer;
+    record_info.flightframe = next_frame.flightframe;
 
-	node->record_callback(record_info);
+    node->record_callback(record_info);
 
     commandbuffer.endRenderPass();
   }

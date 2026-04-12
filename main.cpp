@@ -6,6 +6,7 @@
 #include "graph_builder.hpp"
 #include "memory_buffer.hpp"
 #include "presentation_context.hpp"
+#include "renderpass_builder.hpp"
 #include "texture_storage.hpp"
 
 #include <SDL2/SDL.h>
@@ -113,34 +114,15 @@ int main() {
   auto graph_info =
       alex::graph::graph_info_t(core.physical_device, core.device);
 
-#if 0  
-  graph_info.add_resource("depthpp-depth").as_attachment(
-      alex::graph::attachment_info_t{
-          .type = alex::graph::attachment_type_t::depth,
-          .format = vk::Format::eD32Sfloat,
-          .extent = render_extent,
-          .aspect_flags = vk::ImageAspectFlagBits::eDepth});
-
-  graph_info.add_framepass("depth-prepass")
-      .set_depth_attachment("depthpp-depth")
+  graph_info.add_attachment("geom-color", alex::graph::attachment_type_t::color)
+      .set_format(vk::Format::eR8G8B8A8Srgb)
       .set_extent(render_extent)
-      .set_vertex_program_path("./depth.vert.spv")
-      .set_fragment_program_path("./depth.frag.spv");
-#endif
+      .set_aspect_flags(vk::ImageAspectFlagBits::eColor);
 
-  graph_info.add_resource("geom-color")
-      .as_attachment(alex::graph::attachment_info_t{
-          .type = alex::graph::attachment_type_t::color,
-          .format = vk::Format::eR8G8B8A8Srgb,
-          .extent = render_extent,
-          .aspect_flags = vk::ImageAspectFlagBits::eColor});
-
-  graph_info.add_resource("geom-depth")
-      .as_attachment(alex::graph::attachment_info_t{
-          .type = alex::graph::attachment_type_t::depth,
-          .format = vk::Format::eD32Sfloat,
-          .extent = render_extent,
-          .aspect_flags = vk::ImageAspectFlagBits::eDepth});
+  graph_info.add_attachment("geom-depth", alex::graph::attachment_type_t::depth)
+      .set_format(vk::Format::eD32Sfloat)
+      .set_extent(render_extent)
+      .set_aspect_flags(vk::ImageAspectFlagBits::eDepth);
 
   std::array<vk::DescriptorSetLayoutBinding,
              1> constexpr frame_uniform_bindings{
@@ -157,7 +139,7 @@ int main() {
 
   alex::graph::renderpass_record_callback_t geometry_pass_callback =
       [&](alex::graph::renderpass_record_info_t &record_info) {
-		  std::println("CALLED GEOMETRY PASS CALLBACK");
+        std::println("CALLED GEOMETRY PASS CALLBACK");
       };
 
   graph_info.add_framepass("geometry-pass")
@@ -170,18 +152,25 @@ int main() {
       .add_set_layout(
           core.device.createDescriptorSetLayout(uniform_setinfo, nullptr));
 
-#if 0
-  graph_info.set_presentpass()
-      .add_dependency("geometry-pass")
-      .set_input("geom-color");
-#endif
-
   alex::graph::graph_t graph(graph_info, init_arena);
   std::println("======================");
   graph.print_execution_order(std::cout);
   std::println("======================");
   graph.print_graphviz(std::cout);
   std::println("======================");
+
+  auto geometrypass_info =
+      alex::graph::geometrypass_info_t(core.device)
+          .set_color_attachments(graph.get_attachment_views("geom-color"))
+          .set_color_format(vk::Format::eR8G8B8A8Srgb)
+          .set_depth_attachments(graph.get_attachment_views("geom-depth"))
+          .set_depth_format(vk::Format::eD32Sfloat)
+          .set_color_clearvalue(1.0f, 0.0f, 0.0f, 1.0f)
+          .set_depth_clearvalue(1.0f)
+          .set_loadop(vk::AttachmentLoadOp::eClear)
+          .set_extent(render_extent);
+
+  alex::graph::geometrypass_t geometry_pass(geometrypass_info);
 
   /* ****************************************
    * Initialization Commandbuffer Setup

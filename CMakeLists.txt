@@ -33,6 +33,7 @@ set(PROGRAM_SOURCES
   geometry_pipeline.cpp
   graph.cpp
   graph_builder.cpp
+  renderpass_builder.cpp
 )
 
 add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)
