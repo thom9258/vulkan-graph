@@ -1,7 +1,7 @@
 #include "core.hpp"
 #include "ensure.hpp"
 #include "log.hpp"
-#include "vector.hpp"
+#include "fixed_vector.hpp"
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -29,8 +29,10 @@ void context_t::init(context_info_t &info, memory::arena &allocator) {
     LOG_WARN("No Vulkan Instance Extensions were provided");
   }
 
-  vector_t<const char *> extensions;
-  extensions.init(&allocator, 5);
+
+  fixed_vector_t<const char *> extensions;
+  constexpr const std::size_t max_extensions{16};
+  extensions.init(allocator.allocate < const char*>(max_extensions));
   for (const char *extension : info.instance_extensions) {
     extensions.put(extension);
   }

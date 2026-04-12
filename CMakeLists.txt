@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.2)
 project(graph VERSION 0.1.0)
 
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -ggdb")
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 set(CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -32,6 +32,7 @@ set(PROGRAM_SOURCES
   texture_storage.cpp
   geometry_pipeline.cpp
   graph.cpp
+  graph_builder.cpp
 )
 
 add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)

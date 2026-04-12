@@ -2,7 +2,9 @@
 
 #include "memory_utility.hpp"
 
+#include <cstring>
 #include <span>
+#include <string_view>
 
 namespace alex::memory {
 
@@ -68,6 +70,25 @@ public:
     constexpr alignment alignment{trait<T>::alignment};
     const memory_size_t total_size{n * trait<T>::size};
     return as_element_memoryspan<T>(allocate_bytes(alignment, total_size), n);
+  }
+
+  template <typename t_char = std::string_view::value_type>
+  auto allocate_charbuffer(std::size_t size) noexcept -> std::span<t_char> {
+    return allocate<t_char>(size);
+  }
+
+  auto copy_string(std::string_view string) noexcept -> std::string_view {
+    auto buffer = allocate_charbuffer(string.size());
+    std::strncpy(buffer.data(), string.data(), string.size());
+    return std::string_view(buffer.data(), buffer.size());
+  }
+
+  auto concat_strings(std::string_view first, std::string_view second) noexcept -> std::string_view {
+	element_count_t size = first.size() + second.size();
+    auto buffer = allocate_charbuffer(size);
+    std::strncpy(buffer.data(), first.data(), first.size());
+    std::strncpy(buffer.data() + first.size(), second.data(), second.size());
+    return std::string_view(buffer.data(), buffer.size());
   }
 
   void reset();

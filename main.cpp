@@ -1,8 +1,9 @@
 #include "core.hpp"
 #include "drawing.hpp"
-#include "geometry_primitives.hpp"
 #include "ensure.hpp"
+#include "geometry_primitives.hpp"
 #include "graph.hpp"
+#include "graph_builder.hpp"
 #include "memory_buffer.hpp"
 #include "presentation_context.hpp"
 #include "texture_storage.hpp"
@@ -12,6 +13,7 @@
 
 #include <SDL_video.h>
 #include <chrono>
+#include <iostream>
 #include <ranges>
 #include <span>
 #include <string_view>
@@ -96,7 +98,7 @@ int main() {
   alex::presentation_context_info_t presentation_context_info;
   presentation_context_info.core = &core;
   presentation_context_info.surface = surface;
-  presentation_context_info.enable_vsync = true;
+  presentation_context_info.enable_vsync = false;
   int width{0};
   int height{0};
   SDL_GetWindowSize(window, &width, &height);
@@ -106,47 +108,39 @@ int main() {
   presentation_context.init(presentation_context_info, init_arena);
 
   vk::Extent3D render_extent(presentation_context.window_extent.width,
-							 presentation_context.window_extent.height, 1);
+                             presentation_context.window_extent.height, 1);
 
-  auto geometry_color_attachment = alex::graph::resource_info_t{
-      .name = "geom-color",
-      .type = alex::graph::resource_type_t::attachment,
-      .attachment = alex::graph::attachment_resource_t{
-          .type = alex::graph::attachment_type_t::color,
-          .index = 0,
-          .format = vk::Format::eR8G8B8A8Unorm,
-          .extent = render_extent,
-          .aspect_flags = vk::ImageAspectFlagBits::eColor}};
+  auto graph_info =
+      alex::graph::graph_info_t(core.physical_device, core.device);
 
-  auto geometry_depth_attachment = alex::graph::resource_info_t{
-      .name = "geom-depth",
-      .type = alex::graph::resource_type_t::attachment,
-      .attachment = alex::graph::attachment_resource_t{
+#if 0  
+  graph_info.add_resource("depthpp-depth").as_attachment(
+      alex::graph::attachment_info_t{
           .type = alex::graph::attachment_type_t::depth,
-          .index = 1,
           .format = vk::Format::eD32Sfloat,
           .extent = render_extent,
-          .aspect_flags = vk::ImageAspectFlagBits::eDepth}};
+          .aspect_flags = vk::ImageAspectFlagBits::eDepth});
 
-  auto all_resources = std::to_array(
-      {&geometry_depth_attachment, &geometry_color_attachment});
+  graph_info.add_framepass("depth-prepass")
+      .set_depth_attachment("depthpp-depth")
+      .set_extent(render_extent)
+      .set_vertex_program_path("./depth.vert.spv")
+      .set_fragment_program_path("./depth.frag.spv");
+#endif
 
-  auto geometry_pass_inputs = std::to_array({"geom-color"sv, "geom-depth"sv});
+  graph_info.add_resource("geom-color")
+      .as_attachment(alex::graph::attachment_info_t{
+          .type = alex::graph::attachment_type_t::color,
+          .format = vk::Format::eR8G8B8A8Srgb,
+          .extent = render_extent,
+          .aspect_flags = vk::ImageAspectFlagBits::eColor});
 
-  alex::graph::framepass_info_t geometry_pass;
-  geometry_pass.name = "geometry-pass";
-  geometry_pass.inputs = geometry_pass_inputs;
-  geometry_pass.outputs = {};
-  geometry_pass.extent = render_extent;
-  float constexpr clearcolor = static_cast<float>(0x20) / 255;
-  geometry_pass.clearvalues = {
-      vk::ClearValue{}.setColor({clearcolor, clearcolor, clearcolor, 1.0f}),
-      vk::ClearValue{}.setDepthStencil({1.0f, 0}),
-  };
-
-  geometry_pass.load_op = vk::AttachmentLoadOp::eClear;
-  geometry_pass.vertex_program_path = "./geometry.vert.spv";
-  geometry_pass.fragment_program_path = "./geometry.frag.spv";
+  graph_info.add_resource("geom-depth")
+      .as_attachment(alex::graph::attachment_info_t{
+          .type = alex::graph::attachment_type_t::depth,
+          .format = vk::Format::eD32Sfloat,
+          .extent = render_extent,
+          .aspect_flags = vk::ImageAspectFlagBits::eDepth});
 
   std::array<vk::DescriptorSetLayoutBinding,
              1> constexpr frame_uniform_bindings{
@@ -161,35 +155,33 @@ int main() {
           .setFlags(vk::DescriptorSetLayoutCreateFlags())
           .setBindings(frame_uniform_bindings);
 
-  std::array<vk::DescriptorSetLayout, 1> setlayouts;
-  setlayouts[0] =
-      core.device.createDescriptorSetLayout(uniform_setinfo, nullptr);
+  alex::graph::renderpass_record_callback_t geometry_pass_callback =
+      [&](alex::graph::renderpass_record_info_t &record_info) {
+		  std::println("CALLED GEOMETRY PASS CALLBACK");
+      };
 
-  geometry_pass.set_layouts = setlayouts;
+  graph_info.add_framepass("geometry-pass")
+      .set_record_callback(geometry_pass_callback)
+      .set_color_attachment("geom-color")
+      .set_depth_attachment("geom-depth")
+      .set_extent(render_extent)
+      .set_vertex_program_path("./geometry.vert.spv")
+      .set_fragment_program_path("./geometry.frag.spv")
+      .add_set_layout(
+          core.device.createDescriptorSetLayout(uniform_setinfo, nullptr));
 
-  auto all_framepasses = std::to_array({&geometry_pass});
+#if 0
+  graph_info.set_presentpass()
+      .add_dependency("geometry-pass")
+      .set_input("geom-color");
+#endif
 
-  alex::texture_storage_info_t texture_storage_info;
-  texture_storage_info.capacity = 25;
-
-  alex::texture_storage_t texture_storage;
-  texture_storage.init(texture_storage_info, init_arena);
-
-  alex::graph::graph_info_t graph_info;
-  graph_info.physical_device = core.physical_device;
-  graph_info.device = core.device;
-  graph_info.framepass_infos = all_framepasses;
-  graph_info.resource_infos = all_resources;
-  graph_info.arena = &init_arena;
-  graph_info.texture_storage = &texture_storage;
-
-  alex::graph::graph_t graph;
-  graph.init(graph_info);
-  graph.debug_print();
-  graph.debug_graphviz();
-
-  ENSURE_NOT(texture_storage.find("geom-color").empty(), "could not find image in storage")
-  ENSURE_NOT(texture_storage.find("geom-depth").empty(), "could not find image in storage")
+  alex::graph::graph_t graph(graph_info, init_arena);
+  std::println("======================");
+  graph.print_execution_order(std::cout);
+  std::println("======================");
+  graph.print_graphviz(std::cout);
+  std::println("======================");
 
   /* ****************************************
    * Initialization Commandbuffer Setup
@@ -347,9 +339,7 @@ int main() {
 
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
-    presentation_info.source_offset_end = vk::Offset3D{
-        static_cast<std::int32_t>(geometry_color_attachment.attachment.extent.width),
-        static_cast<std::int32_t>(geometry_color_attachment.attachment.extent.height), 1};
+    presentation_info.source_offset_end = vk::Offset3D{width, height, 1};
 
     presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.destination_offset_end = vk::Offset3D{
@@ -358,10 +348,8 @@ int main() {
         1};
 
     presentation_info.blit_filter = vk::Filter::eLinear;
-
     std::span<alex::texture_t> final_images =
-        texture_storage.find("geom-color");
-
+        graph.m_texture_storage.find("geom-color");
     presentation_info.image = final_images[next_frame_info.flightframe].image;
     presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
     presentation_info.queue = core.queue;

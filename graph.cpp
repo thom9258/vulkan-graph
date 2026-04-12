@@ -1,45 +1,51 @@
 #include "graph.hpp"
+#include "arena.hpp"
 #include "core.hpp"
 #include "drawing.hpp"
 #include "ensure.hpp"
+#include "graph_builder.hpp"
 #include "log.hpp"
 #include "read_spirv_source.hpp"
-#include "vector.hpp"
+#include "texture_storage.hpp"
+
 #include <iostream>
+#include <ranges>
+#include <variant>
 #include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_structs.hpp>
 #include <vulkan/vulkan_to_string.hpp>
 
 namespace alex::graph {
 
-void graph_t::init_framepass_resources() {
-  m_resources =
-      m_arena->allocate<framepass_resource_t *>(m_resource_infos.size());
+graph_t::graph_t(graph_info_t &info, memory::arena &arena) {
+  ENSURE_NOT(info.framepass_infos.empty(), "must have renderpass infos");
+  ENSURE_NOT(info.resource_infos.empty(), "must have resource infos");
 
-  for (std::size_t i = 0; i < m_resources.size(); i++) {
-    m_resources[i] = m_arena->allocate<framepass_resource_t>(1).data();
-    m_resources[i]->name = m_resource_infos[i]->name;
-    m_resources[i]->type = m_resource_infos[i]->type;
-    switch (m_resources[i]->type) {
-    case resource_type_t::texture:
-      m_resources[i]->texture = m_resource_infos[i]->texture;
-      break;
-    case resource_type_t::attachment:
-      m_resources[i]->attachment = m_resource_infos[i]->attachment;
-      break;
-    case resource_type_t::reference:
-      ENSURE(false, "reference not supported")
-      break;
-    case resource_type_t::memory_buffer:
-      ENSURE(false, "memory buffer not supported")
-      break;
-    };
+  init_framepass_resources(info);
+  init_framepass_nodes(info);
+  connect_node_dependencies(info);
+  connect_node_parents();
+
+  // prune_unused_resources();
+  // prune_unused_nodes();
+
+  create_framepass_resources(info);
+  create_framepass_renderpasses(info);
+  create_framepass_pipelines(info, arena);
+}
+
+void graph_t::init_framepass_resources(graph_info_t &info) {
+  for (resource_info_t &resource_info : info.resource_infos) {
+    m_resources.push_back(std::make_unique<framepass_resource_t>());
+    m_resources.back()->name = resource_info.name;
+    m_resources.back()->resource = resource_info.resource;
   }
 }
 
 framepass_node_t *graph_t::find_node(std::string_view name) {
-  for (framepass_node_t *node : m_nodes) {
-    if (node->name == name) {
-      return node;
+  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+    if (node != nullptr && node->name == name) {
+      return node.get();
     }
   }
 
@@ -47,319 +53,367 @@ framepass_node_t *graph_t::find_node(std::string_view name) {
 }
 
 framepass_resource_t *graph_t::find_resource(std::string_view name) {
-  for (framepass_resource_t *resource : m_resources) {
-    if (resource->name == name) {
-      return resource;
+  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+    if (resource != nullptr && resource->name == name) {
+      return resource.get();
     }
   }
 
   return nullptr;
 }
 
-void graph_t::init_framepass_nodes() {
-  m_nodes = m_arena->allocate<framepass_node_t *>(m_framepass_infos.size());
-  for (std::size_t i = 0; i < m_nodes.size(); i++) {
-    m_nodes[i] = m_arena->allocate<framepass_node_t>(1).data();
-    m_nodes[i]->name = m_framepass_infos[i]->name;
-    m_nodes[i]->extent = m_framepass_infos[i]->extent;
-    m_nodes[i]->vertex_program_path = m_framepass_infos[i]->vertex_program_path;
-    m_nodes[i]->fragment_program_path =
-        m_framepass_infos[i]->fragment_program_path;
-    m_nodes[i]->set_layouts = m_framepass_infos[i]->set_layouts;
-    m_nodes[i]->inputs.init(m_arena, 10);
+void graph_t::init_framepass_nodes(graph_info_t &info) {
+  for (framepass_info_t &framepass_info : info.framepass_infos) {
+    m_nodes.push_back(std::make_unique<framepass_node_t>());
+    m_nodes.back()->name = framepass_info.name;
+    m_nodes.back()->record_callback = framepass_info.record_callback;
+    m_nodes.back()->extent = framepass_info.extent;
 
-    for (std::string_view input : m_framepass_infos[i]->inputs) {
-      framepass_resource_t *resource = find_resource(input);
+    if (framepass_info.color_attachment.has_value()) {
+      m_nodes.back()->color_attachment =
+          find_resource(framepass_info.color_attachment.value());
+      ENSURE(m_nodes.back()->color_attachment != nullptr,
+             "could not find specified color attachment for node {}",
+             m_nodes.back()->name)
+    }
+
+    if (framepass_info.depth_attachment.has_value()) {
+      m_nodes.back()->depth_attachment =
+          find_resource(framepass_info.depth_attachment.value());
+      ENSURE(m_nodes.back()->depth_attachment != nullptr,
+             "could not find specified depth attachment for node {}",
+             m_nodes.back()->name)
+    }
+
+    m_nodes.back()->vertex_program_path = framepass_info.vertex_program_path;
+    m_nodes.back()->fragment_program_path =
+        framepass_info.fragment_program_path;
+    m_nodes.back()->set_layouts = framepass_info.set_layouts;
+
+    for (framepass_info_t::name_and_usage_t &input : framepass_info.inputs) {
+      framepass_resource_t *resource = find_resource(input.name);
       ENSURE(resource != nullptr, "could not find resource")
-      m_nodes[i]->inputs.put(resource);
+      m_nodes.back()->inputs.push_back(resource);
       resource->reference_count++;
     }
 
-    m_nodes[i]->outputs.init(m_arena, 10);
-    for (std::string_view output : m_framepass_infos[i]->outputs) {
+    for (std::string_view output : framepass_info.outputs) {
       framepass_resource_t *resource = find_resource(output);
-      ENSURE(resource != nullptr, "could not find resource")
-      m_nodes[i]->outputs.put(resource);
-      ENSURE(resource->producer == nullptr,
-             "resource producer was already assigned")
-      resource->producer = m_nodes[i];
+      m_nodes.back()->outputs.push_back(resource);
     }
   }
 }
 
 void graph_t::prune_unused_resources() {
-  vector_t<framepass_resource_t *> used;
-  used.init(m_arena, m_resources.size());
+  decltype(m_resources) used;
+  used.reserve((m_resources.size()));
 
-  for (framepass_resource_t *resource : m_resources) {
-    if (resource->reference_count > 0) {
-      used.put(resource);
+  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+    if (resource != nullptr && resource->reference_count > 0) {
+      used.push_back(std::move(resource));
     }
   }
 
-  m_resources = used.span();
+  m_resources = std::move(used);
 }
 
 void graph_t::prune_unused_nodes() {
-  // TODO: not implemented
+  // decltype(m_nodes) used;
+  // used.reserve((m_nodes.size()));
+  //
+  // for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+  //   if (node != nullptr && node->inputs.size() > 1 &&
+  //       node->outputs.size() < 1) {
+  //     used.push_back(std::move(node));
+  //   }
+  // }
+  //
+  // m_nodes = std::move(used);
 }
 
-void graph_t::connect_node_dependencies() {
-  for (std::size_t i = 0; i < m_nodes.size(); i++) {
-    m_nodes[i]->dependencies.init(m_arena, 3);
-    for (framepass_resource_t *output : m_nodes[i]->outputs.span()) {
-      if (output->producer != nullptr) {
-        LOG_INFO("output {} already has a producer {}", output->name,
-                 output->producer->name)
-        continue;
-      }
-
-      output->producer = m_nodes[i];
-      m_nodes[i]->dependencies.put(output->producer);
-      LOG_INFO("added dependency {} to framepass {}", output->name,
-               m_nodes[i]->name)
+void graph_t::connect_node_dependencies(graph_info_t &info) {
+  for (framepass_info_t &framepass_info : info.framepass_infos) {
+    framepass_node_t *framepass = find_node(framepass_info.name);
+    ENSURE(framepass != nullptr, "nullptr node")
+    for (std::string &dependency_name : framepass_info.dependencies) {
+      framepass_node_t *dependency = find_node(dependency_name);
+      ENSURE(dependency != nullptr, "nullptr dependency for node {}",
+             framepass->name)
+      framepass->dependencies.push_back(dependency);
     }
   }
 }
 
 void graph_t::connect_node_parents() {
-  for (std::size_t i = 0; i < m_nodes.size(); i++) {
-    ENSURE(m_nodes[i] != nullptr, "found nullptr node");
-    m_nodes[i]->parents.init(m_arena, 3);
-  }
-
-  for (std::size_t i = 0; i < m_nodes.size(); i++) {
-    LOG_INFO("adding dependencies to {}", m_nodes[i]->name)
-    LOG_INFO("specified dependencies count {}",
-             m_nodes[i]->dependencies.length())
-
-    for (framepass_node_t *dependency : m_nodes[i]->dependencies.span()) {
+  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+    ENSURE(node != nullptr, "found nullptr node");
+    for (framepass_node_t *dependency : node->dependencies) {
       ENSURE(dependency != nullptr,
-             "found nullptr dependency specified by node {}", m_nodes[i]->name);
-      ENSURE(dependency->parents.is_initialized(),
-             "tried to access parents but dependency is not initialized");
-
-      LOG_INFO("added parent {} to dependency {}", m_nodes[i]->name,
-               dependency->name)
-
-      dependency->parents.put(m_nodes[i]);
+             "found nullptr dependency specified by node {}", node->name);
+      dependency->parents.push_back(node.get());
     }
   }
 }
 
-void graph_t::debug_print() {
-  std::println("====================");
+void graph_t::print_execution_order(std::ostream &os) {
   std::println("nodes:");
-  for (framepass_node_t *node : m_nodes) {
-    std::println("  {}", node->name);
-    std::print("    [in: ");
-    for (framepass_resource_t *input : node->inputs.span()) {
-      std::print("{} ", input->name);
-    }
-    std::println("]");
+  for (std::unique_ptr<framepass_node_t> &current : m_nodes) {
+    std::println("\t{}:", current->name);
 
-    std::print("    [out: ");
-    for (framepass_resource_t *output : node->outputs.span()) {
-      std::print("{} ", output->name);
+    if (!current->inputs.empty()) {
+      std::print("\t\tin: [ ");
+      for (framepass_resource_t *input : current->inputs) {
+        std::print("{} ", input->name);
+      }
+      std::println("]");
     }
-    std::println("]");
 
-    std::print("    [depends on: ");
-    for (framepass_node_t *edge : node->dependencies.span()) {
-      std::print("{} ", edge->name);
+    if (!current->outputs.empty()) {
+      std::print("\t\tout: [ ");
+      for (framepass_resource_t *output : current->outputs) {
+        std::print("{} ", output->name);
+      }
+      std::println("]");
     }
-    std::println("]");
+
+    if (!current->dependencies.empty()) {
+      std::print("\t\tdepends on: [ ");
+      for (framepass_node_t *edge : current->dependencies) {
+        std::print("{} ", edge->name);
+      }
+      std::println("]");
+    }
+
+    if (current->color_attachment != nullptr) {
+      std::println("\t\tcolor attachment: [ {} ]",
+                   current->color_attachment->name);
+    }
+
+    if (current->depth_attachment != nullptr) {
+      std::println("\t\tdepth attachment: [ {} ]",
+                   current->depth_attachment->name);
+    }
   }
-  std::println("");
-  std::println("resources:");
-  for (framepass_resource_t *resource : m_resources) {
-    // ENSURE(resource->producer != nullptr, "found resource with no producer")
-    if (resource->producer == nullptr) {
-      std::println("  ({}) producer: 'none', refs: {}", resource->name,
-                   resource->reference_count);
-    } else {
-      std::println("  ({}) producer: {}, refs: {}", resource->name,
-                   resource->producer->name, resource->reference_count);
-    }
-  }
-
-  std::println("====================");
 }
 
-void graph_t::debug_graphviz() {
-  std::cout << "digraph \"renderpass_dependencies\" {" << std::endl;
-  std::cout << "\tnode [shape=box, style=outline, color=black];" << std::endl;
-  for (framepass_node_t *node : m_nodes) {
-    for (framepass_node_t *parent : node->parents.span()) {
-      std::cout << "\t\"" << node->name << "\" -> \"" << parent->name << "\";"
-                << std::endl;
+namespace traits {
+static constexpr std::string_view const framepass_node =
+    "[shape=box, style=outline, color=black]";
+static constexpr std::string_view const attachment_node =
+    "[shape=oval, style=outline, color=red]";
+static constexpr std::string_view const resource_node =
+    "[shape=oval, style=outline]";
+static constexpr std::string_view const input_resource_arrow = "";
+static constexpr std::string_view const output_resource_arrow = "";
+static constexpr std::string_view const attachment_arrow =
+    "[arrowhead=none, style=dashed, color=red]";
+static constexpr std::string_view const dependency_arrow = "";
+}; // namespace traits
+
+void graph_t::print_graphviz(std::ostream &os) {
+  std::println(os, "digraph R {{");
+
+  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+    ENSURE(resource != nullptr, "found nullptr resource")
+    std::string_view node_style = traits::resource_node;
+    if (std::holds_alternative<attachment_info_t>(resource->resource)) {
+      node_style = traits::attachment_node;
+    }
+
+    std::println(os, "\t\"{}\" {}", resource->name, node_style);
+  }
+
+  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+    ENSURE(node != nullptr, "found nullptr node")
+    std::println(os, "\t\"{}\" {}", node->name, traits::framepass_node);
+  }
+
+  for (std::unique_ptr<framepass_node_t> &current : m_nodes) {
+    if (current->color_attachment != nullptr) {
+      std::println(os, "\t\"{}\" -> \"{}\" {}", current->name,
+                   current->color_attachment->name, traits::attachment_arrow);
+    }
+
+    if (current->depth_attachment != nullptr) {
+      std::println(os, "\t\"{}\" -> \"{}\" {}", current->name,
+                   current->depth_attachment->name, traits::attachment_arrow);
+    }
+
+    for (framepass_resource_t *input : current->inputs) {
+      ENSURE(input != nullptr, "found nullptr input")
+      std::println(os, "\t\"{}\" -> \"{}\" {}", input->name, current->name,
+                   traits::input_resource_arrow);
+    }
+
+    for (framepass_resource_t *output : current->outputs) {
+      ENSURE(output != nullptr, "found nullptr output")
+      std::println(os, "\t\"{}\" -> \"{}\" {}", current->name, output->name,
+                   traits::output_resource_arrow);
+    }
+
+    for (framepass_node_t *dependency : current->dependencies) {
+      ENSURE(dependency != nullptr, "found nullptr dependency for {}",
+             current->name)
+      std::println(os, "\t\"{}\" -> \"{}\" {}", dependency->name, current->name,
+                   traits::dependency_arrow);
     }
   }
 
-  std::cout << "}" << std::endl;
-}
-
-void graph_t::init(graph_info_t &info) {
-  ENSURE(info.arena != nullptr, "allocator must not be nullptr");
-  ENSURE(info.texture_storage != nullptr,
-         "texture storage must not be nullptr");
-  ENSURE_NOT(info.framepass_infos.empty(), "must have renderpass infos");
-  ENSURE_NOT(info.resource_infos.empty(), "must have resource infos");
-  m_arena = info.arena;
-  m_texture_storage = info.texture_storage;
-  m_framepass_infos = info.framepass_infos;
-  m_resource_infos = info.resource_infos;
-  init_framepass_resources();
-  init_framepass_nodes();
-  // prune_unused_resources();
-  connect_node_dependencies();
-  connect_node_parents();
-  prune_unused_nodes();
-  create_framepass_resources(info);
-  create_framepass_renderpasses(info);
-  create_framepass_pipelines(info);
+  std::println(os, "}}");
 }
 
 void graph_t::create_framepass_resources(graph_info_t &info) {
-  for (framepass_resource_t *resource : m_resources) {
-    if (resource->type == resource_type_t::texture) {
-      texture_info_t texture_info;
+  for (std::unique_ptr<framepass_resource_t> &resource : m_resources) {
+    if (auto *texture = std::get_if<texture_info_t>(&resource->resource)) {
+      alex::texture_info_t texture_info;
       texture_info.physical_device = info.physical_device;
       texture_info.device = info.device;
-      texture_info.extent.setWidth(resource->texture.extent.width)
-          .setHeight(resource->texture.extent.height);
-      texture_info.format = resource->texture.format;
+      texture_info.extent.setWidth(texture->extent.width)
+          .setHeight(texture->extent.height);
+
+      texture_info.format = texture->format;
       texture_info.tiling = vk::ImageTiling::eOptimal;
-      texture_info.aspect_flags = resource->texture.aspect_flags;
+      texture_info.aspect_flags = texture->aspect_flags;
       texture_info.property_flags = vk::MemoryPropertyFlagBits::eDeviceLocal;
       texture_info.usage = vk::ImageUsageFlagBits::eTransferDst |
                            vk::ImageUsageFlagBits::eTransferSrc |
                            vk::ImageUsageFlagBits::eSampled;
 
-      std::span<texture_t> textures =
-          m_arena->allocate<texture_t>(frames_in_flight);
-      ENSURE_NOT(textures.empty(), "arena full")
+      std::vector<texture_t> textures;
+      textures.resize(frames_in_flight);
       for (texture_t &texture : textures) {
         texture.init(texture_info);
       }
 
-      m_texture_storage->add(resource->name, textures);
-      LOG_INFO("created texture resource {} texture size {}/{}", resource->name,
-               resource->texture.extent.width, resource->texture.extent.height)
-    } else if (resource->type == resource_type_t::attachment) {
+      m_texture_storage.add(resource->name, textures);
+    } else if (auto *attachment =
+                   std::get_if<attachment_info_t>(&resource->resource)) {
 
-      texture_info_t attachment_info;
+      alex::texture_info_t attachment_info;
       attachment_info.physical_device = info.physical_device;
       attachment_info.device = info.device;
-      attachment_info.extent.setWidth(resource->attachment.extent.width)
-          .setHeight(resource->attachment.extent.height);
+      attachment_info.extent.setWidth(attachment->extent.width)
+          .setHeight(attachment->extent.height);
 
-      attachment_info.format = resource->attachment.format;
+      attachment_info.format = attachment->format;
       attachment_info.tiling = vk::ImageTiling::eOptimal;
-      attachment_info.aspect_flags = resource->attachment.aspect_flags;
+      attachment_info.aspect_flags = attachment->aspect_flags;
       attachment_info.property_flags = vk::MemoryPropertyFlagBits::eDeviceLocal;
       attachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
                               vk::ImageUsageFlagBits::eTransferSrc |
                               vk::ImageUsageFlagBits::eSampled;
 
-      if (resource->attachment.type == attachment_type_t::color) {
+      if (attachment->type == attachment_type_t::color) {
         attachment_info.usage |= vk::ImageUsageFlagBits::eColorAttachment;
-      } else if (resource->attachment.type == attachment_type_t::depth) {
+      } else if (attachment->type == attachment_type_t::depth) {
         attachment_info.usage |=
             vk::ImageUsageFlagBits::eDepthStencilAttachment;
       }
 
-      std::span<texture_t> attachments =
-          m_arena->allocate<texture_t>(frames_in_flight);
-      ENSURE_NOT(attachments.empty(), "arena full")
+      std::vector<texture_t> attachments;
+      attachments.resize(frames_in_flight);
       for (texture_t &attachment : attachments) {
         attachment.init(attachment_info);
       }
 
-      m_texture_storage->add(resource->name, attachments);
-      LOG_INFO("created attachment resource {} texture size {}/{} count {}",
-               resource->name, resource->attachment.extent.width,
-               resource->attachment.extent.height, attachments.size())
-
-    } else if (resource->type == resource_type_t::memory_buffer) {
-      ENSURE(false, "memory_buffer not supported yet")
+      m_texture_storage.add(resource->name, attachments);
+    } else {
+      ENSURE(false, "resource type not supported yet")
     }
   }
 }
 
 void graph_t::create_framepass_renderpasses(graph_info_t &info) {
-  for (std::size_t i = 0; i < m_nodes.size(); i++) {
-    ENSURE(m_nodes[i] != nullptr, "found nullptr node")
+  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+    ENSURE(node != nullptr, "found nullptr node")
 
-    framepass_resource_t *color_attachment_resource{nullptr};
-    framepass_resource_t *depth_attachment_resource{nullptr};
+    struct attachment_t {
+      vk::AttachmentDescription description;
+      vk::AttachmentReference reference;
+    };
 
-    for (framepass_resource_t *input : m_nodes[i]->inputs.span()) {
-      ENSURE(input != nullptr, "found nullptr input for node {}",
-             m_nodes[i]->name)
+    std::uint32_t color_attachment_index = 0;
+    std::uint32_t depth_attachment_index = 1;
 
-      if (input->type == resource_type_t::attachment) {
-        if (input->attachment.type == attachment_type_t::color) {
-          ENSURE(color_attachment_resource == nullptr,
-                 "only one color attachment is supported for framepass {}",
-                 m_nodes[i]->name)
-          color_attachment_resource = input;
-        } else if (input->attachment.type == attachment_type_t::depth) {
-          ENSURE(depth_attachment_resource == nullptr,
-                 "only one depth attachment is supported for framepass {}",
-                 m_nodes[i]->name)
-          depth_attachment_resource = input;
-        }
-      }
-    }
+    std::optional<attachment_t> color_attachment =
+        std::invoke([&]() -> std::optional<attachment_t> {
+          if (node->color_attachment == nullptr) {
+            return std::nullopt;
+          }
 
-    // TODO: we need to be able to only set depth for shadowpasses etc. in the
-    // future
-    ENSURE(color_attachment_resource != nullptr &&
-               depth_attachment_resource != nullptr,
-           "currently both color and depth attachments must be set for "
-           "framepass {}",
-           m_nodes[i]->name)
+          auto *attachment =
+              std::get_if<attachment_info_t>(&node->color_attachment->resource);
+          if (attachment == nullptr) {
+            return std::nullopt;
+          }
 
-    const auto color_attachment =
-        vk::AttachmentDescription{}
-            .setFlags(vk::AttachmentDescriptionFlags())
-            .setFormat(color_attachment_resource->attachment.format)
-            .setSamples(vk::SampleCountFlagBits::e1)
-            .setLoadOp(vk::AttachmentLoadOp::eClear)
-            .setStoreOp(vk::AttachmentStoreOp::eStore)
-            .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
-            .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
-            .setInitialLayout(vk::ImageLayout::eUndefined)
-            .setFinalLayout(vk::ImageLayout::eColorAttachmentOptimal);
+          attachment_t color_attachment;
+          color_attachment.description =
+              vk::AttachmentDescription{}
+                  .setFlags(vk::AttachmentDescriptionFlags())
+                  .setFormat(attachment->format)
+                  .setSamples(vk::SampleCountFlagBits::e1)
+                  .setLoadOp(vk::AttachmentLoadOp::eClear)
+                  .setStoreOp(vk::AttachmentStoreOp::eStore)
+                  .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+                  .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+                  .setInitialLayout(vk::ImageLayout::eUndefined)
+                  .setFinalLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
-    const auto depth_attachment =
-        vk::AttachmentDescription{}
-            .setFlags(vk::AttachmentDescriptionFlags())
-            .setFormat(depth_attachment_resource->attachment.format)
-            .setSamples(vk::SampleCountFlagBits::e1)
-            .setLoadOp(vk::AttachmentLoadOp::eClear)
-            .setStoreOp(vk::AttachmentStoreOp::eDontCare)
-            .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
-            .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
-            .setInitialLayout(vk::ImageLayout::eUndefined)
-            .setFinalLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
+          color_attachment.reference =
+              vk::AttachmentReference{}
+                  .setAttachment(color_attachment_index)
+                  .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
-    const auto color_reference =
-        vk::AttachmentReference{}.setAttachment(0).setLayout(
-            vk::ImageLayout::eColorAttachmentOptimal);
+          return color_attachment;
+        });
 
-    const auto depth_reference =
-        vk::AttachmentReference{}.setAttachment(1).setLayout(
-            vk::ImageLayout::eDepthStencilAttachmentOptimal);
+    std::optional<attachment_t> depth_attachment =
+        std::invoke([&]() -> std::optional<attachment_t> {
+          if (node->depth_attachment == nullptr) {
+            return std::nullopt;
+          }
+
+          auto *attachment =
+              std::get_if<attachment_info_t>(&node->depth_attachment->resource);
+          if (attachment == nullptr) {
+            return std::nullopt;
+          }
+
+          attachment_t depth_attachment;
+          depth_attachment.description =
+              vk::AttachmentDescription{}
+                  .setFlags(vk::AttachmentDescriptionFlags())
+                  .setFormat(attachment->format)
+                  .setSamples(vk::SampleCountFlagBits::e1)
+                  .setLoadOp(vk::AttachmentLoadOp::eClear)
+                  .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+                  .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+                  .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+                  .setInitialLayout(vk::ImageLayout::eUndefined)
+                  .setFinalLayout(
+                      vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+          depth_attachment.reference =
+              vk::AttachmentReference{}
+                  .setAttachment(depth_attachment_index)
+                  .setLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+          return depth_attachment;
+        });
 
     auto subpass = vk::SubpassDescription{}
                        .setFlags(vk::SubpassDescriptionFlags())
                        .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
                        .setInputAttachments({})
-                       .setResolveAttachments({})
-                       .setColorAttachments(color_reference)
-                       .setPDepthStencilAttachment(&depth_reference);
+                       .setResolveAttachments({});
+
+    if (color_attachment.has_value()) {
+      subpass.setColorAttachments(color_attachment->reference);
+    }
+    if (depth_attachment.has_value()) {
+      subpass.setPDepthStencilAttachment(&depth_attachment->reference);
+    }
 
     auto color_depth_dependency =
         vk::SubpassDependency{}
@@ -373,10 +427,16 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
             .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite |
                               vk::AccessFlagBits::eDepthStencilAttachmentWrite);
 
-    std::array<vk::AttachmentDescription, 2> attachments{color_attachment,
-                                                         depth_attachment};
-
     std::array<vk::SubpassDependency, 1> dependencies{color_depth_dependency};
+
+    std::vector<vk::AttachmentDescription> attachments;
+    if (color_attachment.has_value()) {
+      attachments.push_back(color_attachment->description);
+    }
+    if (depth_attachment.has_value()) {
+      attachments.push_back(depth_attachment->description);
+    }
+
     auto renderPassCreateInfo = vk::RenderPassCreateInfo{}
                                     .setFlags(vk::RenderPassCreateFlags())
                                     .setAttachments(attachments)
@@ -384,65 +444,72 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
                                     .setSubpasses(subpass);
 
     vk::Result result = info.device.createRenderPass(
-        &renderPassCreateInfo, nullptr, &m_nodes[i]->renderpass);
+        &renderPassCreateInfo, nullptr, &node->renderpass);
 
     ENSURE(result == vk::Result::eSuccess, "could not create renderpass")
-    LOG_INFO("Created renderpass for node {}", m_nodes[i]->name)
+    LOG_INFO("Created renderpass for node {}", node->name)
 
-    std::span<texture_t> color_attachments =
-        m_texture_storage->find(color_attachment_resource->name);
-    ENSURE_NOT(
-        color_attachments.empty(),
-        "could not find created color attachments for framebuffers for node {}",
-        m_nodes[i]->name)
+    std::span<texture_t> color_textures =
+        std::invoke([&]() -> std::span<texture_t> {
+          if (node->color_attachment == nullptr) {
+            return {};
+          }
 
-    std::span<texture_t> depth_attachments =
-        m_texture_storage->find(depth_attachment_resource->name);
-    ENSURE_NOT(
-        depth_attachments.empty(),
-        "could not find created depth attachments for framebuffers for node {}",
-        m_nodes[i]->name)
+          return m_texture_storage.find(node->color_attachment->name);
+        });
 
-    LOG_INFO("node {} color/depth framebuffer {}/{}", m_nodes[i]->name,
-             color_attachment_resource->name, depth_attachment_resource->name)
+    std::span<texture_t> depth_textures =
+        std::invoke([&]() -> std::span<texture_t> {
+          if (node->depth_attachment == nullptr) {
+            return {};
+          }
 
-    for (vk::Framebuffer &framebuffer : m_nodes[i]->framebuffers) {
-      std::array<vk::ImageView, 2> attachments = {color_attachments[i].view,
-                                                  depth_attachments[i].view};
-      auto framebuffer_info =
-          vk::FramebufferCreateInfo{}
-              .setAttachments(attachments)
-              .setWidth(color_attachment_resource->attachment.extent.width)
-              .setHeight(color_attachment_resource->attachment.extent.height)
-              .setLayers(1)
-              .setRenderPass(m_nodes[i]->renderpass);
+          return m_texture_storage.find(node->depth_attachment->name);
+        });
+
+    for (auto [i, framebuffer] : node->framebuffers | std::views::enumerate) {
+      std::vector<vk::ImageView> views;
+      if (!color_textures.empty()) {
+        views.push_back(color_textures[i].view);
+      }
+
+      if (!depth_textures.empty()) {
+        views.push_back(depth_textures[i].view);
+      }
+
+      auto framebuffer_info = vk::FramebufferCreateInfo{}
+                                  .setAttachments(views)
+                                  .setWidth(node->extent.width)
+                                  .setHeight(node->extent.height)
+                                  .setLayers(1)
+                                  .setRenderPass(node->renderpass);
 
       vk::Result result = info.device.createFramebuffer(&framebuffer_info,
                                                         nullptr, &framebuffer);
       ENSURE(result == vk::Result::eSuccess, "could not allocate framebuffers")
-      LOG_INFO("created framebuffer for node {}", m_nodes[i]->name)
+      LOG_INFO("created framebuffer for node {}", node->name)
     }
   }
 }
 
-void graph_t::create_framepass_pipelines(graph_info_t &info) {
-  for (std::size_t i = 0; i < m_nodes.size(); i++) {
-    ENSURE(m_nodes[i] != nullptr, "found nullptr node")
+void graph_t::create_framepass_pipelines(graph_info_t &info,
+                                         memory::arena &arena) {
+  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
+    ENSURE(node != nullptr, "found nullptr node")
 
-    auto vertex_source =
-        read_spirv_source(m_nodes[i]->vertex_program_path, *m_arena);
+    auto vertex_source = read_spirv_source(node->vertex_program_path, arena);
 
     ENSURE_NOT(vertex_source.empty(), "Could not load vertex source: {}",
-               m_nodes[i]->vertex_program_path)
+               node->vertex_program_path.string())
 
     auto fragment_source =
-        read_spirv_source(m_nodes[i]->fragment_program_path, *m_arena);
+        read_spirv_source(node->fragment_program_path, arena);
     ENSURE_NOT(fragment_source.empty(), "Could not load fragment source: {}",
-               m_nodes[i]->fragment_program_path)
+               node->fragment_program_path.string())
 
     LOG_INFO("Compiled shader source for geometry pipeline: {} + {}",
-             m_nodes[i]->vertex_program_path,
-             m_nodes[i]->fragment_program_path);
+             node->vertex_program_path.string(),
+             node->fragment_program_path.string());
 
     auto vertexShaderModuleCreateInfo =
         vk::ShaderModuleCreateInfo{}
@@ -524,8 +591,8 @@ void graph_t::create_framepass_pipelines(graph_info_t &info) {
         vk::Viewport{}
             .setX(0.0f)
             .setY(0.0f)
-            .setWidth(static_cast<float>(m_nodes[i]->extent.width))
-            .setHeight(static_cast<float>(m_nodes[i]->extent.height))
+            .setWidth(static_cast<float>(node->extent.width))
+            .setHeight(static_cast<float>(node->extent.height))
             .setMinDepth(0.0f)
             .setMaxDepth(1.0f);
 
@@ -584,10 +651,9 @@ void graph_t::create_framepass_pipelines(graph_info_t &info) {
     auto pipelineLayoutCreateInfo =
         vk::PipelineLayoutCreateInfo{}
             .setFlags(vk::PipelineLayoutCreateFlags())
-            .setSetLayouts(m_nodes[i]->set_layouts);
+            .setSetLayouts(node->set_layouts);
 
-    m_nodes[i]->layout =
-        info.device.createPipelineLayout(pipelineLayoutCreateInfo);
+    node->layout = info.device.createPipelineLayout(pipelineLayoutCreateInfo);
 
     auto depth_stencil_state_info = vk::PipelineDepthStencilStateCreateInfo{}
                                         .setDepthTestEnable(true)
@@ -611,16 +677,16 @@ void graph_t::create_framepass_pipelines(graph_info_t &info) {
             .setPDepthStencilState(&depth_stencil_state_info)
             .setPColorBlendState(&pipelineColorBlendStateCreateInfo)
             .setPDynamicState(&pipelineDynamicStateCreateInfo)
-            .setLayout(m_nodes[i]->layout)
-            .setRenderPass(m_nodes[i]->renderpass);
+            .setLayout(node->layout)
+            .setRenderPass(node->renderpass);
 
     vk::ResultValue<vk::Pipeline> result =
         info.device.createGraphicsPipeline(nullptr, graphicsPipelineCreateInfo);
 
     ENSURE(result.result == vk::Result::eSuccess,
            "Could not create graphics pipeline")
-    m_nodes[i]->pipeline = result.value;
-    LOG_INFO("Created graphics pipeline for node {}", m_nodes[i]->name)
+    node->pipeline = result.value;
+    LOG_INFO("Created graphics pipeline for node {}", node->name)
   }
 }
 
@@ -630,32 +696,23 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
   commandbuffer.reset();
   commandbuffer.begin(vk::CommandBufferBeginInfo{});
 
-  vector_t<framepass_node_t *> starters;
-  starters.init(m_arena, 3);
-
-  for (framepass_node_t *node : m_nodes) {
-    if (node->parents.is_initialized() || node->parents.length() == 0) {
-      starters.put(node);
-    }
-  }
-
-  for (framepass_node_t *node : starters.span()) {
+  for (std::unique_ptr<framepass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
 
-
-    for (framepass_resource_t *input : node->inputs.span()) {
-      std::span<texture_t> textures = m_texture_storage->find(input->name);
+#if 0    
+    for (framepass_resource_t *input : node->inputs) {
+      std::span<texture_t> textures = m_texture_storage.find(input->name);
       ENSURE_NOT(textures.empty(),
                  "could not find output textures for framepass output {}",
                  input->name)
 
       vk::ImageAspectFlags aspect_mask = vk::ImageAspectFlags();
       vk::ImageLayout new_layout = vk::ImageLayout::eReadOnlyOptimal;
-      if (input->type == resource_type_t::attachment) {
-        if (input->attachment.type == attachment_type_t::color) {
+      if (auto *resource = std::get_if<attachment_info_t>(&input->resource)) {
+        if (resource->type == attachment_type_t::color) {
           new_layout = vk::ImageLayout::eColorAttachmentOptimal;
           aspect_mask |= vk::ImageAspectFlagBits::eColor;
-        } else if (input->attachment.type == attachment_type_t::depth) {
+        } else if (resource->type == attachment_type_t::depth) {
           new_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
           aspect_mask |= vk::ImageAspectFlagBits::eDepth;
         }
@@ -685,11 +742,7 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
                                     vk::DependencyFlags(), nullptr, nullptr,
                                     barrier);
     }
-
-    //   LOG_INFO("Recording node {}", node->name)
-    //   LOG_INFO("    node extent {}/{}", node->extent.width,
-    //   node->extent.height) LOG_INFO("    flightframe {}",
-    //   next_frame.flightframe)
+#endif
 
     const auto render_area =
         vk::Rect2D{}
@@ -720,52 +773,13 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
     commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                node->pipeline);
 
+	renderpass_record_info_t record_info;
+	record_info.commandbuffer = commandbuffer;
+	record_info.flightframe = next_frame.flightframe;
+
+	node->record_callback(record_info);
+
     commandbuffer.endRenderPass();
-
-#if 0
-    for (framepass_resource_t *output : node->outputs.span()) {
-      std::span<texture_t> textures = m_texture_storage->find(output->name);
-      ENSURE_NOT(textures.empty(),
-                 "could not find output textures for framepass output {}",
-                 output->name)
-
-      vk::ImageAspectFlags aspect_mask = vk::ImageAspectFlags();
-      vk::ImageLayout old_layout = vk::ImageLayout::eReadOnlyOptimal;
-      if (output->type == resource_type_t::attachment) {
-        if (output->attachment.type == attachment_type_t::color) {
-          old_layout = vk::ImageLayout::eColorAttachmentOptimal;
-          aspect_mask |= vk::ImageAspectFlagBits::eColor;
-        } else if (output->attachment.type == attachment_type_t::depth) {
-          old_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-          aspect_mask |= vk::ImageAspectFlagBits::eDepth;
-        }
-      }
-
-      // TODO: entirety of range and also layouts in barrier can just be stored
-      // in the resosurce itself
-      auto range = vk::ImageSubresourceRange{}
-                       .setAspectMask(aspect_mask)
-                       .setBaseMipLevel(0)
-                       .setLevelCount(1)
-                       .setBaseArrayLayer(0)
-                       .setLayerCount(1);
-
-      auto barrier = vk::ImageMemoryBarrier{}
-                         .setImage(textures[next_frame.flightframe].image)
-                         .setSubresourceRange(range)
-                         .setOldLayout(old_layout)
-                         .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
-                         .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
-                         .setDstAccessMask(vk::AccessFlags())
-                         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-                         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
-
-      commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                                    vk::PipelineStageFlagBits::eTransfer,
-                                    vk::DependencyFlags(), nullptr, nullptr,
-                                    barrier);
-    }
-	#endif
   }
 }
 
