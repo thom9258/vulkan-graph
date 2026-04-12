@@ -3,8 +3,8 @@
 #include "ensure.hpp"
 #include "geometry_primitives.hpp"
 #include "graph.hpp"
-#include "graph_builder.hpp"
 #include "memory_buffer.hpp"
+#include "pipeline_builder.hpp"
 #include "presentation_context.hpp"
 #include "renderpass_builder.hpp"
 #include "texture_storage.hpp"
@@ -96,82 +96,6 @@ int main() {
   alex::core_t core;
   core.init(core_info, init_arena);
 
-  alex::presentation_context_info_t presentation_context_info;
-  presentation_context_info.core = &core;
-  presentation_context_info.surface = surface;
-  presentation_context_info.enable_vsync = false;
-  int width{0};
-  int height{0};
-  SDL_GetWindowSize(window, &width, &height);
-  presentation_context_info.window_extent.width = width;
-  presentation_context_info.window_extent.height = height;
-  alex::presentation_context_t presentation_context;
-  presentation_context.init(presentation_context_info, init_arena);
-
-  vk::Extent3D render_extent(presentation_context.window_extent.width,
-                             presentation_context.window_extent.height, 1);
-
-  auto graph_info =
-      alex::graph::graph_info_t(core.physical_device, core.device);
-
-  graph_info.add_attachment("geom-color", alex::graph::attachment_type_t::color)
-      .set_format(vk::Format::eR8G8B8A8Srgb)
-      .set_extent(render_extent)
-      .set_aspect_flags(vk::ImageAspectFlagBits::eColor);
-
-  graph_info.add_attachment("geom-depth", alex::graph::attachment_type_t::depth)
-      .set_format(vk::Format::eD32Sfloat)
-      .set_extent(render_extent)
-      .set_aspect_flags(vk::ImageAspectFlagBits::eDepth);
-
-  std::array<vk::DescriptorSetLayoutBinding,
-             1> constexpr frame_uniform_bindings{
-      vk::DescriptorSetLayoutBinding{}
-          .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-          .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-          .setBinding(0)
-          .setDescriptorCount(1)};
-
-  const auto uniform_setinfo =
-      vk::DescriptorSetLayoutCreateInfo{}
-          .setFlags(vk::DescriptorSetLayoutCreateFlags())
-          .setBindings(frame_uniform_bindings);
-
-  alex::graph::renderpass_record_callback_t geometry_pass_callback =
-      [&](alex::graph::renderpass_record_info_t &record_info) {
-        std::println("CALLED GEOMETRY PASS CALLBACK");
-      };
-
-  graph_info.add_framepass("geometry-pass")
-      .set_record_callback(geometry_pass_callback)
-      .set_color_attachment("geom-color")
-      .set_depth_attachment("geom-depth")
-      .set_extent(render_extent)
-      .set_vertex_program_path("./geometry.vert.spv")
-      .set_fragment_program_path("./geometry.frag.spv")
-      .add_set_layout(
-          core.device.createDescriptorSetLayout(uniform_setinfo, nullptr));
-
-  alex::graph::graph_t graph(graph_info, init_arena);
-  std::println("======================");
-  graph.print_execution_order(std::cout);
-  std::println("======================");
-  graph.print_graphviz(std::cout);
-  std::println("======================");
-
-  auto geometrypass_info =
-      alex::graph::geometrypass_info_t(core.device)
-          .set_color_attachments(graph.get_attachment_views("geom-color"))
-          .set_color_format(vk::Format::eR8G8B8A8Srgb)
-          .set_depth_attachments(graph.get_attachment_views("geom-depth"))
-          .set_depth_format(vk::Format::eD32Sfloat)
-          .set_color_clearvalue(1.0f, 0.0f, 0.0f, 1.0f)
-          .set_depth_clearvalue(1.0f)
-          .set_loadop(vk::AttachmentLoadOp::eClear)
-          .set_extent(render_extent);
-
-  alex::graph::geometrypass_t geometry_pass(geometrypass_info);
-
   /* ****************************************
    * Initialization Commandbuffer Setup
    *
@@ -193,7 +117,6 @@ int main() {
   /* ****************************************
    * Vertex Buffer Setup
    */
-
   // TODO: funnily enough i think we can set up a direct memory buffer
   // to be the backend of an arena allocator, that way we can just make a
   // big direct buffer and make temporary allocations that are then freed
@@ -287,6 +210,85 @@ int main() {
       core.device.waitForFences(init_fence, true, max_wait);
   ENSURE(init_wait_result == vk::Result::eSuccess, "could not wait for queue")
 
+  /* ****************************************
+   * Setup presentation context
+   */
+  alex::presentation_context_info_t presentation_context_info;
+  presentation_context_info.core = &core;
+  presentation_context_info.surface = surface;
+  presentation_context_info.enable_vsync = false;
+  int width{0};
+  int height{0};
+  SDL_GetWindowSize(window, &width, &height);
+  presentation_context_info.window_extent.width = width;
+  presentation_context_info.window_extent.height = height;
+  alex::presentation_context_t presentation_context;
+  presentation_context.init(presentation_context_info, init_arena);
+
+  /* ****************************************
+   * Setup render graph
+   */
+  vk::Extent3D render_extent(presentation_context.window_extent.width,
+                             presentation_context.window_extent.height, 1);
+
+  auto graph_info =
+      alex::graph::graph_info_t(core.physical_device, core.device);
+
+  graph_info.add_attachment("geom-color", alex::graph::attachment_type_t::color)
+      .set_format(vk::Format::eR8G8B8A8Srgb)
+      .set_extent(render_extent)
+      .set_aspect_flags(vk::ImageAspectFlagBits::eColor);
+
+  graph_info.add_attachment("geom-depth", alex::graph::attachment_type_t::depth)
+      .set_format(vk::Format::eD32Sfloat)
+      .set_extent(render_extent)
+      .set_aspect_flags(vk::ImageAspectFlagBits::eDepth);
+
+  graph_info.add_framepass("geometry-pass")
+      .set_color_attachment("geom-color")
+      .set_depth_attachment("geom-depth")
+      .set_extent(render_extent)
+      .set_vertex_program_path("./geometry.vert.spv")
+      .set_fragment_program_path("./geometry.frag.spv");
+
+  alex::graph::graph_t graph(graph_info);
+  std::println("======================");
+  graph.print_execution_order(std::cout);
+  std::println("======================");
+  graph.print_graphviz(std::cout);
+  std::println("======================");
+
+  /* ****************************************
+   * Pipeline Setup using the created graph renderpasses
+   */
+  std::array<vk::DescriptorSetLayoutBinding,
+             1> constexpr frame_uniform_bindings{
+      vk::DescriptorSetLayoutBinding{}
+          .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+          .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+          .setBinding(0)
+          .setDescriptorCount(1)};
+
+  const auto uniform_setinfo =
+      vk::DescriptorSetLayoutCreateInfo{}
+          .setFlags(vk::DescriptorSetLayoutCreateFlags())
+          .setBindings(frame_uniform_bindings);
+
+  alex::graph::renderpass_node_t *geometry_renderpass =
+      graph.find_node("geometry-pass");
+  ENSURE(geometry_renderpass != nullptr, "could not find geometry-pass")
+
+  auto geometry_pipeline_info =
+      alex::graph::pipeline_info_t(core.device)
+          .set_extent(render_extent)
+          .set_renderpass(geometry_renderpass->geometry_pass.renderpass)
+          .set_vertex_program_path("./geometry.vert.spv")
+          .set_fragment_program_path("./geometry.frag.spv")
+          .add_setlayout(
+              core.device.createDescriptorSetLayout(uniform_setinfo, nullptr));
+
+  alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
+
   {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto time_ns = end_time - start_time;
@@ -324,7 +326,29 @@ int main() {
     alex::next_frame_info_t next_frame_info =
         presentation_context.wait_for_next_frame(core.device);
 
-    graph.record(next_frame_info);
+    alex::graph::record_info_t graph_record_info;
+    graph_record_info.commandbuffer =
+        next_frame_info.presentation_commandbuffer;
+    graph_record_info.flightframe = next_frame_info.flightframe;
+
+    std::vector<alex::graph::renderpass_command_t> geometry_pass_commands{
+        alex::graph::command::bind_pipeline_t{geometry_pipeline.pipeline},
+        //        alex::graph::command::bind_descriptorsets_t{.layout=geometry_pipeline.layout,
+        //        .sets={uniforms[next_frame_info.flightframe].}, },
+        alex::graph::command::bind_vertexbuffer_t{
+            .first_binding = 0,
+            .binding_offsets = {0},
+            .first_buffer = 0,
+            .buffers = {cube_buffer.buffer}},
+        alex::graph::command::draw_t{
+            .instance_count = 1,
+            .first_instance = 0,
+            .vertex_count = static_cast<std::uint32_t>(cube_vertices.size()),
+            .first_vertex = 0}};
+
+    graph_record_info.renderpass_commands.emplace_back("geometry-pass",
+                                                       geometry_pass_commands);
+    graph.record(graph_record_info);
 
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};

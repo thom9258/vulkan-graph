@@ -6,6 +6,7 @@
 #include "graph_builder.hpp"
 #include "log.hpp"
 #include "read_spirv_source.hpp"
+#include "renderpass_builder.hpp"
 #include "texture_storage.hpp"
 
 #include <iostream>
@@ -23,7 +24,7 @@ resource_t::resource_t(std::string_view name, texture_info_t texture)
 resource_t::resource_t(std::string_view name, attachment_info_t attachment)
     : name{name}, resource{attachment} {}
 
-graph_t::graph_t(graph_info_t &info, memory::arena &arena) {
+graph_t::graph_t(graph_info_t &info) {
   ENSURE_NOT(info.framepass_infos.empty(), "must have renderpass infos");
   init_resources(info);
   init_framepass_nodes(info);
@@ -35,7 +36,6 @@ graph_t::graph_t(graph_info_t &info, memory::arena &arena) {
 
   create_framepass_resources(info);
   create_framepass_renderpasses(info);
-//  create_framepass_pipelines(info, arena);
 }
 
 void graph_t::init_resources(graph_info_t &info) {
@@ -76,8 +76,8 @@ graph_t::get_attachment_views(std::string_view name) {
   }
 
   flightframe_array_t<vk::ImageView> views;
-  for (const auto & [i, texture] : textures | std::views::enumerate) {
-	  views[i] = texture.view;
+  for (const auto &[i, texture] : textures | std::views::enumerate) {
+    views[i] = texture.view;
   }
 
   return views;
@@ -87,7 +87,6 @@ void graph_t::init_framepass_nodes(graph_info_t &info) {
   for (renderpass_info_t &framepass_info : info.framepass_infos) {
     m_nodes.push_back(std::make_unique<renderpass_node_t>());
     m_nodes.back()->name = framepass_info.name;
-    m_nodes.back()->record_callback = framepass_info.record_callback;
     m_nodes.back()->extent = framepass_info.extent;
 
     if (framepass_info.color_attachment.has_value()) {
@@ -105,11 +104,6 @@ void graph_t::init_framepass_nodes(graph_info_t &info) {
              "could not find specified depth attachment {} for node {}",
              framepass_info.depth_attachment.value(), m_nodes.back()->name)
     }
-
-    m_nodes.back()->vertex_program_path = framepass_info.vertex_program_path;
-    m_nodes.back()->fragment_program_path =
-        framepass_info.fragment_program_path;
-    m_nodes.back()->set_layouts = framepass_info.set_layouts;
 
     for (renderpass_info_t::name_and_usage_t &input : framepass_info.inputs) {
       resource_t *resource = find_resource(input.name);
@@ -347,377 +341,42 @@ void graph_t::create_framepass_resources(graph_info_t &info) {
 void graph_t::create_framepass_renderpasses(graph_info_t &info) {
   for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
+    ENSURE(node->color_attachment != nullptr,
+           "found nullptr color attachment for node {}", node->name)
+    ENSURE(node->depth_attachment != nullptr,
+           "found nullptr depth attachment for node {}", node->name)
 
-    struct attachment_t {
-      vk::AttachmentDescription description;
-      vk::AttachmentReference reference;
-    };
+    auto *color_attachment =
+        std::get_if<attachment_info_t>(&node->color_attachment->resource);
+    auto *depth_attachment =
+        std::get_if<attachment_info_t>(&node->depth_attachment->resource);
 
-    std::uint32_t color_attachment_index = 0;
-    std::uint32_t depth_attachment_index = 1;
+    ENSURE(color_attachment != nullptr, "no color attachment for node {}",
+           node->name);
+    ENSURE(depth_attachment != nullptr, "no depth attachment for node {}",
+           node->name);
 
-    std::optional<attachment_t> color_attachment =
-        std::invoke([&]() -> std::optional<attachment_t> {
-          if (node->color_attachment == nullptr) {
-            return std::nullopt;
-          }
+    auto geometrypass_info =
+        geometrypass_info_t(info.device)
+            .set_extent(node->extent)
+            .set_loadop(vk::AttachmentLoadOp::eClear)
+            .set_color_attachments(
+                get_attachment_views(node->color_attachment->name))
+            .set_color_clearvalue(1.0f, 0.0f, 0.0f, 1.0f)
+            .set_color_format(color_attachment->format)
+            .set_depth_attachments(
+                get_attachment_views(node->depth_attachment->name))
+            .set_depth_clearvalue(1.0f)
+            .set_depth_format(depth_attachment->format);
 
-          auto *attachment =
-              std::get_if<attachment_info_t>(&node->color_attachment->resource);
-          if (attachment == nullptr) {
-            return std::nullopt;
-          }
-
-          attachment_t color_attachment;
-          color_attachment.description =
-              vk::AttachmentDescription{}
-                  .setFlags(vk::AttachmentDescriptionFlags())
-                  .setFormat(attachment->format)
-                  .setSamples(vk::SampleCountFlagBits::e1)
-                  .setLoadOp(vk::AttachmentLoadOp::eClear)
-                  .setStoreOp(vk::AttachmentStoreOp::eStore)
-                  .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
-                  .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
-                  .setInitialLayout(vk::ImageLayout::eUndefined)
-                  .setFinalLayout(vk::ImageLayout::eColorAttachmentOptimal);
-
-          color_attachment.reference =
-              vk::AttachmentReference{}
-                  .setAttachment(color_attachment_index)
-                  .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
-
-          return color_attachment;
-        });
-
-    std::optional<attachment_t> depth_attachment =
-        std::invoke([&]() -> std::optional<attachment_t> {
-          if (node->depth_attachment == nullptr) {
-            return std::nullopt;
-          }
-
-          auto *attachment =
-              std::get_if<attachment_info_t>(&node->depth_attachment->resource);
-          if (attachment == nullptr) {
-            return std::nullopt;
-          }
-
-          attachment_t depth_attachment;
-          depth_attachment.description =
-              vk::AttachmentDescription{}
-                  .setFlags(vk::AttachmentDescriptionFlags())
-                  .setFormat(attachment->format)
-                  .setSamples(vk::SampleCountFlagBits::e1)
-                  .setLoadOp(vk::AttachmentLoadOp::eClear)
-                  .setStoreOp(vk::AttachmentStoreOp::eDontCare)
-                  .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
-                  .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
-                  .setInitialLayout(vk::ImageLayout::eUndefined)
-                  .setFinalLayout(
-                      vk::ImageLayout::eDepthStencilAttachmentOptimal);
-
-          depth_attachment.reference =
-              vk::AttachmentReference{}
-                  .setAttachment(depth_attachment_index)
-                  .setLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
-
-          return depth_attachment;
-        });
-
-    auto subpass = vk::SubpassDescription{}
-                       .setFlags(vk::SubpassDescriptionFlags())
-                       .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
-                       .setInputAttachments({})
-                       .setResolveAttachments({});
-
-    if (color_attachment.has_value()) {
-      subpass.setColorAttachments(color_attachment->reference);
-    }
-    if (depth_attachment.has_value()) {
-      subpass.setPDepthStencilAttachment(&depth_attachment->reference);
-    }
-
-    auto color_depth_dependency =
-        vk::SubpassDependency{}
-            .setSrcSubpass(vk::SubpassExternal)
-            .setDstSubpass(0)
-            .setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput |
-                             vk::PipelineStageFlagBits::eEarlyFragmentTests)
-            .setSrcAccessMask(vk::AccessFlags())
-            .setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput |
-                             vk::PipelineStageFlagBits::eEarlyFragmentTests)
-            .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite |
-                              vk::AccessFlagBits::eDepthStencilAttachmentWrite);
-
-    std::array<vk::SubpassDependency, 1> dependencies{color_depth_dependency};
-
-    std::vector<vk::AttachmentDescription> attachments;
-    if (color_attachment.has_value()) {
-      attachments.push_back(color_attachment->description);
-    }
-    if (depth_attachment.has_value()) {
-      attachments.push_back(depth_attachment->description);
-    }
-
-    auto renderPassCreateInfo = vk::RenderPassCreateInfo{}
-                                    .setFlags(vk::RenderPassCreateFlags())
-                                    .setAttachments(attachments)
-                                    .setDependencies(dependencies)
-                                    .setSubpasses(subpass);
-
-    vk::Result result = info.device.createRenderPass(
-        &renderPassCreateInfo, nullptr, &node->renderpass);
-
-    ENSURE(result == vk::Result::eSuccess, "could not create renderpass")
-    LOG_INFO("Created renderpass for node {}", node->name)
-
-    std::span<texture_t> color_textures =
-        std::invoke([&]() -> std::span<texture_t> {
-          if (node->color_attachment == nullptr) {
-            return {};
-          }
-
-          return m_texture_storage.find(node->color_attachment->name);
-        });
-
-    std::span<texture_t> depth_textures =
-        std::invoke([&]() -> std::span<texture_t> {
-          if (node->depth_attachment == nullptr) {
-            return {};
-          }
-
-          return m_texture_storage.find(node->depth_attachment->name);
-        });
-
-    for (auto [i, framebuffer] : node->framebuffers | std::views::enumerate) {
-      std::vector<vk::ImageView> views;
-      if (!color_textures.empty()) {
-        views.push_back(color_textures[i].view);
-      }
-
-      if (!depth_textures.empty()) {
-        views.push_back(depth_textures[i].view);
-      }
-
-      auto framebuffer_info = vk::FramebufferCreateInfo{}
-                                  .setAttachments(views)
-                                  .setWidth(node->extent.width)
-                                  .setHeight(node->extent.height)
-                                  .setLayers(1)
-                                  .setRenderPass(node->renderpass);
-
-      vk::Result result = info.device.createFramebuffer(&framebuffer_info,
-                                                        nullptr, &framebuffer);
-      ENSURE(result == vk::Result::eSuccess, "could not allocate framebuffers")
-      LOG_INFO("created framebuffer for node {}", node->name)
-    }
+    node->geometry_pass = geometrypass_t(geometrypass_info);
   }
 }
 
-#if 0
-void graph_t::create_framepass_pipelines(graph_info_t &info,
-                                         memory::arena &arena) {
-  for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
-    ENSURE(node != nullptr, "found nullptr node")
+void graph_t::record(record_info_t &info) {
 
-    auto vertex_source = read_spirv_source(node->vertex_program_path, arena);
-
-    ENSURE_NOT(vertex_source.empty(), "Could not load vertex source: {}",
-               node->vertex_program_path.string())
-
-    auto fragment_source =
-        read_spirv_source(node->fragment_program_path, arena);
-    ENSURE_NOT(fragment_source.empty(), "Could not load fragment source: {}",
-               node->fragment_program_path.string())
-
-    LOG_INFO("Compiled shader source for geometry pipeline: {} + {}",
-             node->vertex_program_path.string(),
-             node->fragment_program_path.string());
-
-    auto vertexShaderModuleCreateInfo =
-        vk::ShaderModuleCreateInfo{}
-            .setFlags(vk::ShaderModuleCreateFlags())
-            .setCode(vertex_source);
-
-    auto fragmentShaderModuleCreateInfo =
-        vk::ShaderModuleCreateInfo{}
-            .setFlags(vk::ShaderModuleCreateFlags())
-            .setCode(fragment_source);
-
-    vk::ShaderModule vertex_module =
-        info.device.createShaderModule(vertexShaderModuleCreateInfo);
-    vk::ShaderModule fragment_module =
-        info.device.createShaderModule(fragmentShaderModuleCreateInfo);
-
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderstage_infos{
-        vk::PipelineShaderStageCreateInfo{}
-            .setStage(vk::ShaderStageFlagBits::eVertex)
-            .setFlags(vk::PipelineShaderStageCreateFlags())
-            .setModule(vertex_module)
-            .setPName("main"),
-        vk::PipelineShaderStageCreateInfo{}
-            .setStage(vk::ShaderStageFlagBits::eFragment)
-            .setFlags(vk::PipelineShaderStageCreateFlags())
-            .setModule(fragment_module)
-            .setPName("main")};
-
-    auto pipelineDynamicStateCreateInfo = vk::PipelineDynamicStateCreateInfo{};
-
-    std::array<vk::VertexInputBindingDescription,
-               1> constexpr vertex_binding_descriptions{
-        vk::VertexInputBindingDescription{}
-            .setBinding(0)
-            .setStride(sizeof(vertex_t))
-            .setInputRate(vk::VertexInputRate::eVertex),
-    };
-
-    std::array<vk::VertexInputAttributeDescription,
-               4> constexpr vertex_attribute_descriptions{
-        vk::VertexInputAttributeDescription{}
-            .setBinding(0)
-            .setLocation(0)
-            .setFormat(vk::Format::eR32G32B32Sfloat)
-            .setOffset(offsetof(vertex_t, position)),
-
-        vk::VertexInputAttributeDescription{}
-            .setBinding(0)
-            .setLocation(1)
-            .setFormat(vk::Format::eR32G32B32Sfloat)
-            .setOffset(offsetof(vertex_t, normal)),
-
-        vk::VertexInputAttributeDescription{}
-            .setBinding(0)
-            .setLocation(2)
-            .setFormat(vk::Format::eR32G32B32Sfloat)
-            .setOffset(offsetof(vertex_t, color)),
-
-        vk::VertexInputAttributeDescription{}
-            .setBinding(0)
-            .setLocation(3)
-            .setFormat(vk::Format::eR32G32Sfloat)
-            .setOffset(offsetof(vertex_t, texcoord)),
-    };
-
-    auto pipelineVertexInputStateCreateInfo =
-        vk::PipelineVertexInputStateCreateInfo{}
-            .setFlags(vk::PipelineVertexInputStateCreateFlags())
-            .setVertexBindingDescriptions(vertex_binding_descriptions)
-            .setVertexAttributeDescriptions(vertex_attribute_descriptions);
-
-    auto pipelineInputAssemblyStateCreateInfo =
-        vk::PipelineInputAssemblyStateCreateInfo{}
-            .setFlags(vk::PipelineInputAssemblyStateCreateFlags())
-            .setPrimitiveRestartEnable(vk::False)
-            .setTopology(vk::PrimitiveTopology::eTriangleList);
-
-    const auto initial_viewport =
-        vk::Viewport{}
-            .setX(0.0f)
-            .setY(0.0f)
-            .setWidth(static_cast<float>(node->extent.width))
-            .setHeight(static_cast<float>(node->extent.height))
-            .setMinDepth(0.0f)
-            .setMaxDepth(1.0f);
-
-    auto initial_scissor =
-        vk::Rect2D{}.setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f));
-
-    auto pipelineViewportStateCreateInfo =
-        vk::PipelineViewportStateCreateInfo{}
-            .setFlags(vk::PipelineViewportStateCreateFlags())
-            .setViewports(initial_viewport)
-            .setScissors(initial_scissor);
-
-    auto pipelineRasterizationStateCreateInfo =
-        vk::PipelineRasterizationStateCreateInfo{}
-            .setFlags(vk::PipelineRasterizationStateCreateFlags())
-            .setDepthClampEnable(false)
-            .setRasterizerDiscardEnable(false)
-            .setPolygonMode(vk::PolygonMode::eFill)
-            .setCullMode(vk::CullModeFlagBits::eBack)
-            .setFrontFace(vk::FrontFace::eCounterClockwise)
-            .setDepthBiasEnable(false)
-            .setDepthBiasConstantFactor(0.0f)
-            .setDepthBiasClamp(0.0f)
-            .setDepthBiasSlopeFactor(0.0f)
-            .setLineWidth(1.0f);
-
-    auto pipelineMultisampleStateCreateInfo =
-        vk::PipelineMultisampleStateCreateInfo{}
-            .setFlags(vk::PipelineMultisampleStateCreateFlags())
-            .setSampleShadingEnable(false)
-            .setRasterizationSamples(vk::SampleCountFlagBits::e1);
-
-    vk::ColorComponentFlags constexpr colorComponentFlags(
-        vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-        vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
-
-    auto pipelineColorBlendAttachmentState =
-        vk::PipelineColorBlendAttachmentState{}
-            .setBlendEnable(false)
-            .setSrcColorBlendFactor(vk::BlendFactor::eOne)
-            .setDstColorBlendFactor(vk::BlendFactor::eZero)
-            .setColorBlendOp(vk::BlendOp::eAdd)
-            .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-            .setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-            .setAlphaBlendOp(vk::BlendOp::eAdd)
-            .setColorWriteMask(colorComponentFlags);
-
-    auto pipelineColorBlendStateCreateInfo =
-        vk::PipelineColorBlendStateCreateInfo{}
-            .setFlags(vk::PipelineColorBlendStateCreateFlags())
-            .setLogicOpEnable(false)
-            .setLogicOp(vk::LogicOp::eNoOp)
-            .setAttachments(pipelineColorBlendAttachmentState)
-            .setBlendConstants({1.0f, 1.0f, 1.0f, 1.0f});
-
-    auto pipelineLayoutCreateInfo =
-        vk::PipelineLayoutCreateInfo{}
-            .setFlags(vk::PipelineLayoutCreateFlags())
-            .setSetLayouts(node->set_layouts);
-
-    node->layout = info.device.createPipelineLayout(pipelineLayoutCreateInfo);
-
-    auto depth_stencil_state_info = vk::PipelineDepthStencilStateCreateInfo{}
-                                        .setDepthTestEnable(true)
-                                        .setDepthWriteEnable(true)
-                                        .setDepthCompareOp(vk::CompareOp::eLess)
-                                        .setDepthBoundsTestEnable(false)
-                                        .setMinDepthBounds(0.0f)
-                                        .setMaxDepthBounds(1.0f)
-                                        .setStencilTestEnable(false);
-
-    auto graphicsPipelineCreateInfo =
-        vk::GraphicsPipelineCreateInfo{}
-            .setFlags(vk::PipelineCreateFlags())
-            .setStages(shaderstage_infos)
-            .setPVertexInputState(&pipelineVertexInputStateCreateInfo)
-            .setPInputAssemblyState(&pipelineInputAssemblyStateCreateInfo)
-            .setPTessellationState(nullptr)
-            .setPViewportState(&pipelineViewportStateCreateInfo)
-            .setPRasterizationState(&pipelineRasterizationStateCreateInfo)
-            .setPMultisampleState(&pipelineMultisampleStateCreateInfo)
-            .setPDepthStencilState(&depth_stencil_state_info)
-            .setPColorBlendState(&pipelineColorBlendStateCreateInfo)
-            .setPDynamicState(&pipelineDynamicStateCreateInfo)
-            .setLayout(node->layout)
-            .setRenderPass(node->renderpass);
-
-    vk::ResultValue<vk::Pipeline> result =
-        info.device.createGraphicsPipeline(nullptr, graphicsPipelineCreateInfo);
-
-    ENSURE(result.result == vk::Result::eSuccess,
-           "Could not create graphics pipeline")
-    node->pipeline = result.value;
-    LOG_INFO("Created graphics pipeline for node {}", node->name)
-  }
-}
-#endif
-
-void graph_t::record(alex::next_frame_info_t &next_frame) {
-
-  vk::CommandBuffer &commandbuffer = next_frame.presentation_commandbuffer;
-  commandbuffer.reset();
-  commandbuffer.begin(vk::CommandBufferBeginInfo{});
+  info.commandbuffer.reset();
+  info.commandbuffer.begin(vk::CommandBufferBeginInfo{});
 
   for (std::unique_ptr<renderpass_node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
@@ -767,42 +426,64 @@ void graph_t::record(alex::next_frame_info_t &next_frame) {
     }
 #endif
 
+    auto found = std::ranges::find_if(
+        info.renderpass_commands, [&](renderpass_commands_t &commands) {
+          return commands.renderpass_name == node->name;
+        });
+
+    if (found == info.renderpass_commands.end()) {
+	  LOG_WARN("renderpass node {} had no renderpass commands!", node->name)
+      continue;
+    }
+
     const auto render_area =
         vk::Rect2D{}
             .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
             .setExtent(vk::Extent2D(node->extent.width, node->extent.height));
 
-    float constexpr clearcolor = static_cast<float>(0x20) / 255;
-    std::array<vk::ClearValue, 2> clearvalues{
-        vk::ClearValue{}.setColor({clearcolor, clearcolor, clearcolor, 1.0f}),
-        vk::ClearValue{}.setDepthStencil({1.0f, 0}),
-    };
-
-    ENSURE(node->renderpass != VK_NULL_HANDLE,
+    ENSURE(node->geometry_pass.renderpass != VK_NULL_HANDLE,
            "renderpass is nullhandle for node {}", node->name)
-    ENSURE(node->framebuffers[next_frame.flightframe] != VK_NULL_HANDLE,
+    ENSURE(node->geometry_pass.framebuffers[info.flightframe] != VK_NULL_HANDLE,
            "framebuffer is nullhandle for node {}", node->name)
 
     const auto renderpass_begin_info =
         vk::RenderPassBeginInfo{}
-            .setRenderPass(node->renderpass)
-            .setFramebuffer(node->framebuffers[next_frame.flightframe])
+            .setRenderPass(node->geometry_pass.renderpass)
+            .setFramebuffer(node->geometry_pass.framebuffers[info.flightframe])
             .setRenderArea(render_area)
-            .setClearValues(clearvalues);
+            .setClearValues(node->geometry_pass.clearvalues);
 
-    commandbuffer.beginRenderPass(renderpass_begin_info,
-                                  vk::SubpassContents::eInline);
+    info.commandbuffer.beginRenderPass(renderpass_begin_info,
+                                       vk::SubpassContents::eInline);
 
-    commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                               node->pipeline);
+    for (renderpass_command_t &command : found->commands) {
+      if (auto *p = std::get_if<command::draw_t>(&command)) {
+        info.commandbuffer.draw(p->vertex_count, p->instance_count,
+                                p->first_vertex, p->first_instance);
+      } else if (auto *p = std::get_if<command::bind_pipeline_t>(&command)) {
+        info.commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                        p->pipeline);
+      } else if (auto *p =
+                     std::get_if<command::bind_vertexbuffer_t>(&command)) {
 
-    renderpass_record_info_t record_info;
-    record_info.commandbuffer = commandbuffer;
-    record_info.flightframe = next_frame.flightframe;
+        info.commandbuffer.bindVertexBuffers(
+            p->first_binding, p->binding_offsets.size(), p->buffers.data(),
+            p->binding_offsets.data());
 
-    node->record_callback(record_info);
+      } else if (auto *p = std::get_if<command::bind_indexbuffer_t>(&command)) {
+        info.commandbuffer.bindIndexBuffer(
+            p->buffer, p->offset, p->type);
+      } else if (auto *p =
+                     std::get_if<command::bind_descriptorsets_t>(&command)) {
+        info.commandbuffer.bindDescriptorSets(
+            vk::PipelineBindPoint::eGraphics, p->layout, p->first_set,
+            p->sets.size(), p->sets.data(), 0, nullptr);
+      } else {
+        ENSURE(false, "Invalid unknown draw command")
+      }
+    }
 
-    commandbuffer.endRenderPass();
+    info.commandbuffer.endRenderPass();
   }
 }
 

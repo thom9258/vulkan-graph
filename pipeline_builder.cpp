@@ -18,13 +18,13 @@ pipeline_info_t &pipeline_info_t::set_renderpass(vk::RenderPass renderpass) {
 
 pipeline_info_t &
 pipeline_info_t::set_vertex_program_path(std::filesystem::path path) {
-  this->vertex_program_path = vertex_program_path;
+  this->vertex_program_path = path;
   return *this;
 }
 
 pipeline_info_t &
 pipeline_info_t::set_fragment_program_path(std::filesystem::path path) {
-  this->fragment_program_path = vertex_program_path;
+  this->fragment_program_path = path;
   return *this;
 }
 
@@ -37,11 +37,11 @@ pipeline_info_t::add_setlayout(vk::DescriptorSetLayout setlayout) {
 pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
   auto vertex_source = read_spirv_source(info.vertex_program_path, arena);
 
-  ENSURE_NOT(vertex_source.empty(), "Could not load vertex source: {}",
+  ENSURE_NOT(vertex_source.empty(), "Could not load vertex source: [{}]",
              info.vertex_program_path.string())
 
   auto fragment_source = read_spirv_source(info.fragment_program_path, arena);
-  ENSURE_NOT(fragment_source.empty(), "Could not load fragment source: {}",
+  ENSURE_NOT(fragment_source.empty(), "Could not load fragment source: [{}]",
              info.fragment_program_path.string())
 
   LOG_INFO("Compiled shader source for geometry pipeline: {} + {}",
@@ -191,38 +191,37 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
 
   layout = info.device.createPipelineLayout(pipelineLayoutCreateInfo);
 
-    auto depth_stencil_state_info = vk::PipelineDepthStencilStateCreateInfo{}
-                                        .setDepthTestEnable(true)
-                                        .setDepthWriteEnable(true)
-                                        .setDepthCompareOp(vk::CompareOp::eLess)
-                                        .setDepthBoundsTestEnable(false)
-                                        .setMinDepthBounds(0.0f)
-                                        .setMaxDepthBounds(1.0f)
-                                        .setStencilTestEnable(false);
+  auto depth_stencil_state_info = vk::PipelineDepthStencilStateCreateInfo{}
+                                      .setDepthTestEnable(true)
+                                      .setDepthWriteEnable(true)
+                                      .setDepthCompareOp(vk::CompareOp::eLess)
+                                      .setDepthBoundsTestEnable(false)
+                                      .setMinDepthBounds(0.0f)
+                                      .setMaxDepthBounds(1.0f)
+                                      .setStencilTestEnable(false);
 
-    auto graphicsPipelineCreateInfo =
-        vk::GraphicsPipelineCreateInfo{}
-            .setFlags(vk::PipelineCreateFlags())
-            .setStages(shaderstage_infos)
-            .setPVertexInputState(&pipelineVertexInputStateCreateInfo)
-            .setPInputAssemblyState(&pipelineInputAssemblyStateCreateInfo)
-            .setPTessellationState(nullptr)
-            .setPViewportState(&pipelineViewportStateCreateInfo)
-            .setPRasterizationState(&pipelineRasterizationStateCreateInfo)
-            .setPMultisampleState(&pipelineMultisampleStateCreateInfo)
-            .setPDepthStencilState(&depth_stencil_state_info)
-            .setPColorBlendState(&pipelineColorBlendStateCreateInfo)
-            .setPDynamicState(&pipelineDynamicStateCreateInfo)
-            .setLayout(layout)
-            .setRenderPass(info.renderpass);
+  auto graphicsPipelineCreateInfo =
+      vk::GraphicsPipelineCreateInfo{}
+          .setFlags(vk::PipelineCreateFlags())
+          .setStages(shaderstage_infos)
+          .setPVertexInputState(&pipelineVertexInputStateCreateInfo)
+          .setPInputAssemblyState(&pipelineInputAssemblyStateCreateInfo)
+          .setPTessellationState(nullptr)
+          .setPViewportState(&pipelineViewportStateCreateInfo)
+          .setPRasterizationState(&pipelineRasterizationStateCreateInfo)
+          .setPMultisampleState(&pipelineMultisampleStateCreateInfo)
+          .setPDepthStencilState(&depth_stencil_state_info)
+          .setPColorBlendState(&pipelineColorBlendStateCreateInfo)
+          .setPDynamicState(&pipelineDynamicStateCreateInfo)
+          .setLayout(layout)
+          .setRenderPass(info.renderpass);
 
-    vk::ResultValue<vk::Pipeline> result =
-        info.device.createGraphicsPipeline(nullptr, graphicsPipelineCreateInfo);
+  vk::ResultValue<vk::Pipeline> result =
+      info.device.createGraphicsPipeline(nullptr, graphicsPipelineCreateInfo);
 
-    ENSURE(result.result == vk::Result::eSuccess,
-           "Could not create graphics pipeline")
-    pipeline = result.value;
-    LOG_INFO("Created graphics pipeline for node {}", node->name)
+  ENSURE(result.result == vk::Result::eSuccess,
+         "Could not create graphics pipeline")
+  pipeline = result.value;
 }
 
 } // namespace alex::graph

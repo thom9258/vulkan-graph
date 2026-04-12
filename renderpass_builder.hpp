@@ -31,9 +31,11 @@ struct geometrypass_info_t {
 };
 
 struct geometrypass_t {
+  geometrypass_t() = default;
   geometrypass_t(geometrypass_info_t &info);
   vk::RenderPass renderpass;
   vk::Extent2D extent;
+  std::array<vk::ClearValue, 2> clearvalues;
   flightframe_array_t<vk::Framebuffer> framebuffers;
 };
 

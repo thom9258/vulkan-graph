@@ -51,7 +51,7 @@ geometrypass_info_t &geometrypass_info_t::set_loadop(vk::AttachmentLoadOp op) {
 }
 
 geometrypass_t::geometrypass_t(geometrypass_info_t &info) {
-
+  clearvalues = info.clearvalues;
   const auto color_attachment =
       vk::AttachmentDescription{}
           .setFlags(vk::AttachmentDescriptionFlags())
