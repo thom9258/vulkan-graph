@@ -362,7 +362,8 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
             .set_loadop(vk::AttachmentLoadOp::eClear)
             .set_color_attachments(
                 get_attachment_views(node->color_attachment->name))
-            .set_color_clearvalue(1.0f, 0.0f, 0.0f, 1.0f)
+		//TODO: propagate clearcolor to renderpass_info_t
+            .set_color_clearvalue(0.1f, 0.1f, 0.1f, 1.0f)
             .set_color_format(color_attachment->format)
             .set_depth_attachments(
                 get_attachment_views(node->depth_attachment->name))

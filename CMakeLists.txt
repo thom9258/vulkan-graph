@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL2 REQUIRED)
+find_package(glm REQUIRED)
 
 include(FetchContent)
 message(STATUS "Fetching Simple Geometry")
@@ -35,6 +36,7 @@ set(PROGRAM_SOURCES
   graph_builder.cpp
   renderpass_builder.cpp
   pipeline_builder.cpp
+  uniform_descriptorsets.cpp
 )
 
 add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)
@@ -50,4 +52,5 @@ target_link_libraries(${PROJECT_NAME}
   ${Vulkan_LIBRARIES}
   ${SDL2_LIBRARIES}
   SimpleGeometry
+  glm::glm
 )

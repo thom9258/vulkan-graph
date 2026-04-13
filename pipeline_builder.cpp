@@ -147,6 +147,7 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
           .setFlags(vk::PipelineRasterizationStateCreateFlags())
           .setDepthClampEnable(false)
           .setRasterizerDiscardEnable(false)
+          // TODO: next 3 should be exposed
           .setPolygonMode(vk::PolygonMode::eFill)
           .setCullMode(vk::CullModeFlagBits::eBack)
           .setFrontFace(vk::FrontFace::eCounterClockwise)

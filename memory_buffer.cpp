@@ -7,10 +7,10 @@ namespace alex {
 void direct_memory_buffer_t::init(direct_memory_buffer_info_t &info) {
   vk::BufferUsageFlags usage_flags = vk::BufferUsageFlagBits::eTransferSrc;
 
-  if (info.buffer_type == BufferType::Uniform) {
+  if (info.buffer_type == memory_buffer_type_t::uniform) {
     usage_flags |= vk::BufferUsageFlagBits::eUniformBuffer;
   }
-  else if (info.buffer_type == BufferType::Vertices) {
+  else if (info.buffer_type == memory_buffer_type_t::vertices) {
     usage_flags |= vk::BufferUsageFlagBits::eVertexBuffer;
   }
 
@@ -53,10 +53,10 @@ void direct_memory_buffer_t::cleanup(vk::Device device) {
 void memory_buffer_t::init(memory_buffer_info_t &info) {
 
   vk::BufferUsageFlags usage_flags = vk::BufferUsageFlagBits::eTransferDst;
-  if (info.buffer_type == BufferType::Uniform) {
+  if (info.buffer_type == memory_buffer_type_t::uniform) {
     usage_flags |= vk::BufferUsageFlagBits::eUniformBuffer;
   }
-  else if (info.buffer_type == BufferType::Vertices) {
+  else if (info.buffer_type == memory_buffer_type_t::vertices) {
     usage_flags |= vk::BufferUsageFlagBits::eVertexBuffer;
   }
 

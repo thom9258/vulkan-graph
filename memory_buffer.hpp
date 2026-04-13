@@ -5,16 +5,16 @@
 
 namespace alex {
 
-enum class BufferType {
-  Basic,
-  Uniform,
-  Vertices,
+enum class memory_buffer_type_t {
+  basic,
+  uniform,
+  vertices,
 };    
 
 struct direct_memory_buffer_info_t {
   vk::PhysicalDevice physical_device;
   vk::Device device;
-  BufferType buffer_type{BufferType::Basic};
+  memory_buffer_type_t buffer_type{memory_buffer_type_t::basic};
   std::size_t memory_size{1};
 };
 
@@ -31,7 +31,7 @@ struct direct_memory_buffer_t {
 struct memory_buffer_info_t {
   vk::PhysicalDevice physical_device;
   vk::Device device;
-  BufferType buffer_type{BufferType::Basic};
+  memory_buffer_type_t buffer_type{memory_buffer_type_t::basic};
   size_t memory_size{0};
 };
 

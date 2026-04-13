@@ -1,7 +1,7 @@
 #pragma once
 
-#include "drawing.hpp"
 #include "arena.hpp"
+#include "drawing.hpp"
 #include "ensure.hpp"
 
 #define SIMPLE_GEOMETRY_IMPLEMENTATION
@@ -9,7 +9,8 @@
 
 #include <ranges>
 
-std::span<alex::vertex_t> load_cube(alex::memory::arena &arena) {
+constexpr auto load_cube(alex::memory::arena &arena, float r, float g, float b)
+    -> std::span<alex::vertex_t> {
   sg_status status;
   sg_cube_info info;
   info.width = 1.0f;
@@ -28,25 +29,25 @@ std::span<alex::vertex_t> load_cube(alex::memory::arena &arena) {
 
   auto normals = arena.allocate<sg_normal>(vertices_size);
   ENSURE_NOT(normals.empty(), "Could not allocate normals buffer")
-  status = sg_cube_vertices(&info, &vertices_size, nullptr, normals.data(),
-                            nullptr);
+  status =
+      sg_cube_vertices(&info, &vertices_size, nullptr, normals.data(), nullptr);
   ENSURE(sg_success(status), "Could not load vertices")
 
   auto vertices = arena.allocate<alex::vertex_t>(vertices_size);
   ENSURE_NOT(vertices.empty(), "Could not allocate vertices buffer")
 
   for (auto [i, vertex] : vertices | std::views::enumerate) {
-	  vertex.position[0] = positions[i].x;
-	  vertex.position[1] = positions[i].y;
-	  vertex.position[2] = positions[i].z;
-	  vertex.normal[0] = normals[i].x;
-	  vertex.normal[1] = normals[i].y;
-	  vertex.normal[2] = normals[i].z;
-	  vertex.color[0] = 1.0f;
-	  vertex.color[1] = 0.0f;
-	  vertex.color[2] = 0.0f;
-	  vertex.texcoord[0] = 0.0f;
-	  vertex.texcoord[1] = 0.0f;
+    vertex.position[0] = positions[i].x;
+    vertex.position[1] = positions[i].y;
+    vertex.position[2] = positions[i].z;
+    vertex.normal[0] = normals[i].x;
+    vertex.normal[1] = normals[i].y;
+    vertex.normal[2] = normals[i].z;
+    vertex.color[0] = r;
+    vertex.color[1] = g;
+    vertex.color[2] = b;
+    vertex.texcoord[0] = 0.0f;
+    vertex.texcoord[1] = 0.0f;
   }
 
   return vertices;
