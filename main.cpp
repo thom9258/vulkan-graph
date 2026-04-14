@@ -202,7 +202,7 @@ int main() {
   };
   draw_info_t cube_draw_info;
   cube_draw_info.view =
-      glm::lookAt(glm::vec3(0.0f, 0.0f, 5.0f), glm::vec3(0.0f, 0.0f, 0.0f),
+      glm::lookAt(glm::vec3(0.0f, 0.0f, -10.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                   glm::vec3(0.0f, 1.0f, 0.0f));
 
   const float aspect = static_cast<float>(width) / static_cast<float>(height);
