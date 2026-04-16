@@ -27,14 +27,12 @@ set(PROGRAM_SOURCES
   core.cpp
   find_memory_type.cpp
   memory_buffer.cpp
-  renderpass.cpp
   presentation_context.cpp
   texture.cpp
   texture_storage.cpp
-  geometry_pipeline.cpp
   graph.cpp
   graph_builder.cpp
-  renderpass_builder.cpp
+  geometrypass_builder.cpp
   pipeline_builder.cpp
   uniform_descriptorsets.cpp
 )

@@ -87,6 +87,14 @@ renderpass_info_t::set_fragment_program_path(std::filesystem::path path) {
   return *this;
 }
 
+uploadpass_info_t::uploadpass_info_t(std::string_view name) : name{name} {}
+
+uploadpass_info_t &
+uploadpass_info_t::add_dependency(std::string_view dependency) {
+  dependencies.emplace_back(dependency);
+  return *this;
+}
+
 graph_info_t::graph_info_t(vk::PhysicalDevice physical_device,
                            vk::Device device)
     : physical_device{physical_device}, device{device} {}
@@ -94,6 +102,11 @@ graph_info_t::graph_info_t(vk::PhysicalDevice physical_device,
 renderpass_info_t &graph_info_t::add_framepass(std::string_view name) {
   framepass_infos.emplace_back(name);
   return framepass_infos.back();
+}
+
+uploadpass_info_t &graph_info_t::add_uploadpass(std::string_view name) {
+  uploadpass_infos.emplace_back(name);
+  return uploadpass_infos.back();
 }
 
 texture_info_t &graph_info_t::add_texture(std::string_view name) {

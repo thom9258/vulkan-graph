@@ -6,11 +6,13 @@
 #include "memory_buffer.hpp"
 #include "pipeline_builder.hpp"
 #include "presentation_context.hpp"
-#include "renderpass_builder.hpp"
 #include "texture_storage.hpp"
 #include "uniform_descriptorsets.hpp"
 
+#include "button.hpp"
+#include "deltaclock.hpp"
 #include "glm.hpp"
+#include "orbit_camera.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -160,7 +162,8 @@ int main() {
   /* ****************************************
    * Vertex Buffer Setup
    */
-  std::span<alex::vertex_t> cube_vertices = load_cube(init_arena, 0.0f, 1.0f, 0.0f);
+  std::span<alex::vertex_t> cube_vertices =
+      load_cube(init_arena, 0.0f, 1.0f, 0.0f);
   alex::direct_memory_buffer_info_t direct_cube_buffer_info;
   direct_cube_buffer_info.physical_device = core.physical_device;
   direct_cube_buffer_info.device = core.device;
@@ -195,15 +198,30 @@ int main() {
   /* ****************************************
    * Uniform Buffers Setup
    */
+
+  DeltaClock deltaclock;
+
+  struct directional_light_t {
+    glm::vec3 direction;
+    float _padding0;
+    glm::vec3 color;
+    float _padding1;
+  };
+
+  struct ambient_light_t {};
+
   struct draw_info_t {
     glm::mat4 view;
     glm::mat4 projection;
     glm::mat4 model;
   };
+
+  float constexpr orbit_radius = 5.0f;
+  glm::vec3 constexpr orbit_target = glm::vec3(0.0f);
+  OrbitCamera camera(orbit_target, orbit_radius);
+
   draw_info_t cube_draw_info;
-  cube_draw_info.view =
-      glm::lookAt(glm::vec3(0.0f, 0.0f, -10.0f), glm::vec3(0.0f, 0.0f, 0.0f),
-                  glm::vec3(0.0f, 1.0f, 0.0f));
+  cube_draw_info.view = camera.view();
 
   const float aspect = static_cast<float>(width) / static_cast<float>(height);
   const float near_plane = 1.0f, far_plane = 20.0f;
@@ -323,11 +341,14 @@ int main() {
       .set_aspect_flags(vk::ImageAspectFlagBits::eDepth);
 
   graph_info.add_framepass("geometry-pass")
+      .add_dependency("upload")
       .set_color_attachment("geom-color")
       .set_depth_attachment("geom-depth")
       .set_extent(render_extent)
       .set_vertex_program_path("./geometry.vert.spv")
       .set_fragment_program_path("./geometry.frag.spv");
+
+  graph_info.add_uploadpass("upload");
 
   alex::graph::graph_t graph(graph_info);
   std::println("======================");
@@ -340,8 +361,12 @@ int main() {
    * Pipeline Setup using the created graph renderpasses
    */
 
-  alex::graph::renderpass_node_t *geometry_renderpass =
+  alex::graph::node_t *geometry_renderpass_node =
       graph.find_node("geometry-pass");
+  ENSURE(geometry_renderpass_node != nullptr, "could not find geometry-pass")
+
+  alex::graph::renderpass_node_t *geometry_renderpass =
+      std::get_if<alex::graph::renderpass_node_t>(geometry_renderpass_node);
   ENSURE(geometry_renderpass != nullptr, "could not find geometry-pass")
 
   auto geometry_pipeline_info =
@@ -369,14 +394,40 @@ int main() {
     std::println("  Total {} bytes", init_arena.total_memory());
   }
 
+  button_t button_w;
+  button_t button_a;
+  button_t button_s;
+  button_t button_d;
+
   bool running = true;
   while (running) {
+    auto const deltatime = deltaclock.deltatime_ms();
+    float const movespeed = 5.0f * deltatime;
     std::vector<SDL_Event> events = poll_all_sdl_events();
-
     for (SDL_Event event : events) {
       switch (event.type) {
       case SDL_QUIT:
         running = false;
+        break;
+
+      case SDL_KEYUP:
+        switch (event.key.keysym.sym) {
+        case SDLK_ESCAPE:
+          running = false;
+          break;
+        case SDLK_w:
+          button_w.release();
+          break;
+        case SDLK_s:
+          button_s.release();
+          break;
+        case SDLK_a:
+          button_a.release();
+          break;
+        case SDLK_d:
+          button_d.release();
+          break;
+        }
         break;
 
       case SDL_KEYDOWN:
@@ -384,12 +435,56 @@ int main() {
         case SDLK_ESCAPE:
           running = false;
           break;
+        case SDLK_w:
+          button_w.press();
+          break;
+        case SDLK_s:
+          button_s.press();
+          break;
+        case SDLK_a:
+          button_a.press();
+          break;
+        case SDLK_d:
+          button_d.press();
+          break;
         }
+        break;
       }
+    }
+
+    if (button_w.is_pressed()) {
+      camera.add_rotation(-movespeed, 0.0f);
+    }
+    if (button_a.is_pressed()) {
+      camera.add_rotation(0.0f, movespeed);
+    }
+    if (button_s.is_pressed()) {
+      camera.add_rotation(movespeed, 0.0f);
+    }
+    if (button_d.is_pressed()) {
+      camera.add_rotation(0.0f, -movespeed);
     }
 
     alex::next_frame_info_t next_frame_info =
         presentation_context.wait_for_next_frame(core.device);
+
+    // TODO: presentation context should not own a commandbuffer, you should own
+    // it yourself
+    next_frame_info.presentation_commandbuffer.reset();
+    next_frame_info.presentation_commandbuffer.begin(
+        vk::CommandBufferBeginInfo{});
+
+    cube_draw_info.view = camera.view();
+    std::memcpy(direct_uniforms[next_frame_info.flightframe].memory_ptr,
+                &cube_draw_info, sizeof(cube_draw_info));
+
+    alex::memory_buffer_write_info_t write_info;
+    write_info.physical_device = core.physical_device;
+    write_info.device = core.device;
+    write_info.memory = &direct_uniforms[next_frame_info.flightframe];
+    write_info.write_size = uniforms[next_frame_info.flightframe].memory_size;
+    write_info.commandbuffer = next_frame_info.presentation_commandbuffer;
+    uniforms[next_frame_info.flightframe].record_write(write_info);
 
     alex::graph::record_info_t graph_record_info;
     graph_record_info.commandbuffer =
@@ -397,6 +492,14 @@ int main() {
     graph_record_info.flightframe = next_frame_info.flightframe;
 
     std::vector<alex::graph::renderpass_command_t> geometry_pass_commands{
+        alex::graph::command::set_viewport_t{
+            .x = 0.0f,
+            .y = 0.0f,
+            .w = static_cast<float>(render_extent.width),
+            .h = static_cast<float>(render_extent.height)},
+        alex::graph::command::set_scissor_t{
+            .offset = {0, 0},
+            .extent = {render_extent.width, render_extent.height}},
         alex::graph::command::bind_pipeline_t{geometry_pipeline.pipeline},
         alex::graph::command::bind_descriptorsets_t{
             .layout = geometry_pipeline.layout,
@@ -437,6 +540,7 @@ int main() {
         next_frame_info.presentation_commandbuffer;
 
     presentation_context.present(presentation_info);
+    deltaclock.tick();
   }
 
   std::println("Shutdown Memory footprint:");

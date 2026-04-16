@@ -1,7 +1,6 @@
 #pragma once
 
 #include "presentation_context.hpp"
-#include "ref.hpp"
 #include "texture.hpp"
 #include "texture_storage.hpp"
 
@@ -70,56 +69,28 @@ struct renderpass_info_t {
   std::vector<std::string> dependencies;
 };
 
-#if 0
-struct computepass_info_t {
-  computepass_info_t(std::string_view name);
-  computepass_info_t &add_dependency(std::string_view name);
+struct uploadpass_info_t {
+  uploadpass_info_t(std::string_view name);
+  uploadpass_info_t &add_dependency(std::string_view dependency);
 
-  std::string name;
+  std::string name{""};
   std::vector<std::string> dependencies;
 };
-
-struct blitpass_info_t {
-  blitpass_info_t(std::string_view name);
-  blitpass_info_t &set_base(std::string_view name);
-  blitpass_info_t &set_overlay(std::string_view name);
-  blitpass_info_t &add_dependency(std::string_view name);
-
-  std::string name;
-  std::string base;
-  std::string overlay;
-  std::vector<std::string> dependencies;
-};
-
-struct presentpass_info_t {
-  presentpass_info_t &set_input(std::string_view name);
-  presentpass_info_t &add_dependency(std::string_view name);
-
-  std::string input;
-  std::vector<std::string> dependencies;
-};
-#endif
 
 struct graph_info_t {
   graph_info_t(vk::PhysicalDevice physical_device, vk::Device device);
-  attachment_info_t &add_attachment(std::string_view name, attachment_type_t type);
+  attachment_info_t &add_attachment(std::string_view name,
+                                    attachment_type_t type);
   texture_info_t &add_texture(std::string_view name);
   renderpass_info_t &add_framepass(std::string_view name);
+  uploadpass_info_t &add_uploadpass(std::string_view name);
 
   vk::PhysicalDevice physical_device;
   vk::Device device;
   std::vector<texture_info_t> texture_infos;
   std::vector<attachment_info_t> attachment_infos;
   std::vector<renderpass_info_t> framepass_infos;
-
-#if 0
-  blitpass_info_t &add_blitpass(std::string_view name);
-  computepass_info_t &add_computepass(std::string_view name);
-  presentpass_info_t &set_presentpass();
-  std::vector<blitpass_info_t> blitpass_infos;
-  std::vector<computepass_info_t> computepass_infos;
-  presentpass_info_t presentpass_info;
-#endif
+  std::vector<uploadpass_info_t> uploadpass_infos;
 };
 
 } // namespace alex::graph

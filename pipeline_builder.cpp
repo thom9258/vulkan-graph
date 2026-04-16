@@ -1,6 +1,7 @@
 #include "pipeline_builder.hpp"
 #include "drawing.hpp"
 #include "read_spirv_source.hpp"
+#include <vulkan/vulkan_enums.hpp>
 
 namespace alex::graph {
 
@@ -75,7 +76,11 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
           .setModule(fragment_module)
           .setPName("main")};
 
-  auto pipelineDynamicStateCreateInfo = vk::PipelineDynamicStateCreateInfo{};
+  std::array<vk::DynamicState, 2> const dynamic_states{
+      vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+
+  auto pipelineDynamicStateCreateInfo =
+      vk::PipelineDynamicStateCreateInfo{}.setDynamicStates(dynamic_states);
 
   std::array<vk::VertexInputBindingDescription,
              1> constexpr vertex_binding_descriptions{
