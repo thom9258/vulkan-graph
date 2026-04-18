@@ -9,7 +9,7 @@
 #include "texture_storage.hpp"
 #include "uniform_descriptorsets.hpp"
 
-#include "ecs.hpp"
+#include "../alex_ecs/ecs.hpp"
 
 #include "button.hpp"
 #include "deltaclock.hpp"
@@ -47,50 +47,39 @@ std::size_t constexpr mb = 1'000'000;
 int main() {
   global::set_log_level(LogLevel::Info);
 
-  struct component_pos_t {
-    float x;
-    float y;
-    float z;
+  struct component_mesh_t {
+	  alex::memory_buffer_t vertices;
+	  alex::flightframe_array_t<alex::direct_memory_buffer_t> direct_uniforms;
+	  alex::flightframe_array_t<alex::memory_buffer_t> uniforms;
+	  alex::uniform_descriptorsets_t descriptorsets;
   };
 
-  struct component_health_t {
-    float health;
+  struct component_transform_t {
+	  glm::mat4 mat;
   };
+ 
+  static constexpr std::size_t max_entities = 100;
 
   using manager_t = alex::ecs::manager_t<
-      alex::ecs::component_policy_t<component_pos_t, 100>,
-      alex::ecs::component_policy_t<component_health_t, 100>>;
+      alex::ecs::component_policy_t<component_mesh_t, max_entities>,
+      alex::ecs::component_policy_t<component_transform_t, max_entities>>;
 
   using entity_t = manager_t::entity_t;
   using component_indices_t = manager_t::component_indices_t;
+  using correlation_t = manager_t::correlation_t;
 
-  std::array<manager_t::correlation_t, 100> correlation_memory;
-  std::array<component_pos_t, 100> pos_components;
-  std::array<component_health_t, 100> health_components;
+  std::array<manager_t::correlation_t, max_entities> correlation_memory;
+  std::array<component_mesh_t, max_entities> mesh_components;
+  std::array<component_transform_t, max_entities> transform_components;
 
-  manager_t manager(correlation_memory, pos_components, health_components);
+  manager_t manager(correlation_memory, mesh_components, transform_components);
   entity_t cube = manager.new_entity();
-  component_indices_t* cube_indices = manager.find_component_indices(cube);
-  ENSURE(cube_indices != nullptr, "")
-  ENSURE(manager.has_component<component_pos_t>(cube) == false, "")
-  ENSURE(manager.get_component<component_pos_t>(cube) == nullptr, "")
+  auto *transform = manager.add_component<component_transform_t>(cube);
+  transform->mat = glm::mat4(1.0f);
 
-  auto *pos = manager.add_component<component_pos_t>(cube);
-  ENSURE(pos != nullptr, "")
-
-  ENSURE(manager.has_component<component_pos_t>(cube) == true, "")
-  pos = manager.get_component<component_pos_t>(cube);
-  ENSURE(pos != nullptr, "")
-  pos->x = 3.0f;
-  ENSURE(pos_components[0].x == 3.0f, "")
+  auto *mesh = manager.add_component<component_mesh_t>(cube);
    
-
-	  
-
-	  
-  //auto* pos = manager.add_component<component_pos_t>(cube);
-  //pos->x = 2.0f;
-
+ 
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
   alex::memory::arena init_arena(memory);
@@ -210,6 +199,7 @@ int main() {
    */
   std::span<alex::vertex_t> cube_vertices =
       load_cube(init_arena, 0.0f, 1.0f, 0.0f);
+
   alex::direct_memory_buffer_info_t direct_cube_buffer_info;
   direct_cube_buffer_info.physical_device = core.physical_device;
   direct_cube_buffer_info.device = core.device;
@@ -236,10 +226,16 @@ int main() {
   cube_buffer_write_info.write_size = direct_cube_buffer.memory_size;
   cube_buffer_write_info.commandbuffer = init_commandbuffer;
 
+#if 0
   alex::memory_buffer_t cube_buffer;
   cube_buffer.init(cube_buffer_info);
   cube_buffer.record_write(cube_buffer_write_info);
   LOG_INFO("Created cube vertex buffer");
+#else
+  mesh->vertices.init(cube_buffer_info);
+  mesh->vertices.record_write(cube_buffer_write_info);
+  LOG_INFO("Created cube vertex buffer");
+#endif
 
   /* ****************************************
    * Uniform Buffers Setup
@@ -275,22 +271,29 @@ int main() {
       glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
 
   cube_draw_info.model = glm::mat4(1.0f);
-
+  
   alex::direct_memory_buffer_info_t direct_uniform_info;
   direct_uniform_info.physical_device = core.physical_device;
   direct_uniform_info.device = core.device;
   direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
   direct_uniform_info.memory_size = sizeof(cube_draw_info);
 
+#if 0
   alex::flightframe_array_t<alex::direct_memory_buffer_t> direct_uniforms;
   for (alex::direct_memory_buffer_t &uniform : direct_uniforms) {
+#else
+  for (alex::direct_memory_buffer_t &uniform : mesh->direct_uniforms) {
+#endif
     uniform.init(direct_uniform_info);
     std::memcpy(uniform.memory_ptr, &cube_draw_info, sizeof(cube_draw_info));
-  };
+  }; 
 
+#if 0
   alex::flightframe_array_t<alex::memory_buffer_t> uniforms;
-
   for (auto [i, uniform] : uniforms | std::views::enumerate) {
+#else
+  for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+ #endif
     alex::memory_buffer_info_t uniform_info;
     uniform_info.physical_device = core.physical_device;
     uniform_info.device = core.device;
@@ -301,7 +304,11 @@ int main() {
     alex::memory_buffer_write_info_t write_info;
     write_info.physical_device = core.physical_device;
     write_info.device = core.device;
+#if 0
     write_info.memory = &direct_uniforms[i];
+#else
+    write_info.memory = &mesh->direct_uniforms[i];
+#endif
     write_info.write_size = uniform.memory_size;
     write_info.commandbuffer = init_commandbuffer;
     uniform.record_write(write_info);
@@ -324,17 +331,25 @@ int main() {
   cube_descriptorsets_info.layout = geometry_pipeline_info_setlayout;
   cube_descriptorsets_info.pool = descriptor_pool;
 
+#if 0
   alex::uniform_descriptorsets_t cube_descriptorsets;
   cube_descriptorsets.init(cube_descriptorsets_info);
-
   for (auto [i, uniform] : uniforms | std::views::enumerate) {
+#else
+  mesh->descriptorsets.init(cube_descriptorsets_info);
+  for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+#endif
     alex::uniform_descriptorsets_update_info_t update_info;
     update_info.device = core.device;
     update_info.set_index = i;
     update_info.buffer = &uniform;
     update_info.buffer_offset = 0;
-    update_info.buffer_size = uniforms[i].memory_size;
+    update_info.buffer_size = uniform.memory_size;
+#if 0
     cube_descriptorsets.update(update_info);
+#else
+    mesh->descriptorsets.update(update_info);
+#endif
   };
 
   /* ****************************************
@@ -521,15 +536,24 @@ int main() {
         vk::CommandBufferBeginInfo{});
 
     cube_draw_info.view = camera.view();
+#if 0
     std::memcpy(direct_uniforms[next_frame_info.flightframe].memory_ptr,
                 &cube_draw_info, sizeof(cube_draw_info));
-
+#else
+    std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe].memory_ptr,
+                &cube_draw_info, sizeof(cube_draw_info));
+#endif
     std::vector<alex::graph::uploadpass_command_t> upload_commands{
         alex::graph::command::buffer_upload_t{
             .physical_device = core.physical_device,
             .device = core.device,
+#if 0
             .direct_buffer = &direct_uniforms[next_frame_info.flightframe],
             .buffer = &uniforms[next_frame_info.flightframe]}};
+#else
+            .direct_buffer = &mesh->direct_uniforms[next_frame_info.flightframe],
+            .buffer = &mesh->uniforms[next_frame_info.flightframe]}};
+#endif
 
     std::vector<alex::graph::renderpass_command_t> geometry_pass_commands{
         alex::graph::command::set_viewport_t{
@@ -543,13 +567,17 @@ int main() {
         alex::graph::command::bind_pipeline_t{geometry_pipeline.pipeline},
         alex::graph::command::bind_descriptorsets_t{
             .layout = geometry_pipeline.layout,
+#if 0
             .sets = {cube_descriptorsets.get_set(next_frame_info.flightframe)},
+#else
+            .sets = {mesh->descriptorsets.get_set(next_frame_info.flightframe)},
+#endif
         },
         alex::graph::command::bind_vertexbuffer_t{
             .first_binding = 0,
             .binding_offsets = {0},
             .first_buffer = 0,
-            .buffers = {cube_buffer.buffer}},
+            .buffers = {mesh->vertices.buffer}},
         alex::graph::command::draw_t{
             .instance_count = 1,
             .first_instance = 0,
