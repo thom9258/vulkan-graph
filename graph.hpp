@@ -11,45 +11,6 @@
 
 namespace alex::graph {
 
-struct resource_t {
-  resource_t(std::string_view name, texture_info_t texture);
-  resource_t(std::string_view name, attachment_info_t attachment);
-
-  std::string name{""};
-  std::variant<texture_info_t, attachment_info_t> resource;
-  std::uint32_t reference_count{0};
-  vk::ImageLayout layout{vk::ImageLayout::eUndefined};
-};
-
-struct renderpass_node_t;
-struct uploadpass_node_t;
-using node_t = std::variant<renderpass_node_t, uploadpass_node_t>;
-
-std::string_view get_name(node_t& node);
-std::span<node_t*> get_dependencies(node_t &node);
-
-void add_dependency(node_t& node, node_t* dependency);
-void add_parent(node_t& node, node_t* parent);
-
-struct renderpass_node_t {
-  std::string name{""};
-  resource_t *depth_attachment{nullptr};
-  resource_t *color_attachment{nullptr};
-  std::vector<resource_t *> inputs;
-  std::vector<resource_t *> outputs;
-  std::vector<node_t *> dependencies;
-  std::vector<node_t *> parents;
-
-  vk::Extent3D extent;
-  geometrypass_t geometry_pass;
-};
-
-struct uploadpass_node_t {
-  std::string name{""};
-  std::vector<node_t *> dependencies;
-  std::vector<node_t *> parents;
-};
-
 namespace command {
 
 struct draw_t {
@@ -99,6 +60,8 @@ struct set_scissor_t {
 };
 
 struct buffer_upload_t {
+  vk::PhysicalDevice physical_device;
+  vk::Device device;
   direct_memory_buffer_t *direct_buffer;
   memory_buffer_t *buffer;
 };
@@ -130,6 +93,51 @@ struct record_info_t {
   std::vector<uploadpass_commands_t> uploadpass_commands;
 };
 
+struct resource_t {
+  resource_t(std::string_view name, texture_info_t texture);
+  resource_t(std::string_view name, attachment_info_t attachment);
+
+  std::string name{""};
+  std::variant<texture_info_t, attachment_info_t> resource;
+  std::uint32_t reference_count{0};
+  vk::ImageLayout layout{vk::ImageLayout::eUndefined};
+};
+
+struct renderpass_node_t;
+struct uploadpass_node_t;
+using node_t = std::variant<renderpass_node_t, uploadpass_node_t>;
+
+std::string_view get_name(node_t &node);
+std::span<node_t *> get_dependencies(node_t &node);
+
+void add_dependency(node_t &node, node_t *dependency);
+void add_parent(node_t &node, node_t *parent);
+
+struct renderpass_node_t {
+  std::string name{""};
+  resource_t *depth_attachment{nullptr};
+  resource_t *color_attachment{nullptr};
+  std::vector<resource_t *> inputs;
+  std::vector<resource_t *> outputs;
+  std::vector<node_t *> dependencies;
+  std::vector<node_t *> parents;
+
+  vk::Extent3D extent;
+  geometrypass_t geometry_pass;
+
+  void record(std::span<renderpass_command_t> commands,
+              vk::CommandBuffer commandbuffer, std::uint32_t flightframe);
+};
+
+struct uploadpass_node_t {
+  std::string name{""};
+  std::vector<node_t *> dependencies;
+  std::vector<node_t *> parents;
+
+  void record(std::span<uploadpass_command_t> commands,
+              vk::CommandBuffer commandbuffer);
+};
+
 struct graph_t {
   graph_t(graph_info_t &info);
 
@@ -153,6 +161,7 @@ private:
   void prune_unused_nodes();
   void connect_node_dependencies(graph_info_t &info);
   void connect_node_parents();
+  void sort_nodes();
   void create_framepass_resources(graph_info_t &info);
   void create_framepass_renderpasses(graph_info_t &info);
 };

@@ -9,6 +9,8 @@
 #include "texture_storage.hpp"
 #include "uniform_descriptorsets.hpp"
 
+#include "ecs.hpp"
+
 #include "button.hpp"
 #include "deltaclock.hpp"
 #include "glm.hpp"
@@ -44,6 +46,50 @@ std::size_t constexpr mb = 1'000'000;
 
 int main() {
   global::set_log_level(LogLevel::Info);
+
+  struct component_pos_t {
+    float x;
+    float y;
+    float z;
+  };
+
+  struct component_health_t {
+    float health;
+  };
+
+  using manager_t = alex::ecs::manager_t<
+      alex::ecs::component_policy_t<component_pos_t, 100>,
+      alex::ecs::component_policy_t<component_health_t, 100>>;
+
+  using entity_t = manager_t::entity_t;
+  using component_indices_t = manager_t::component_indices_t;
+
+  std::array<manager_t::correlation_t, 100> correlation_memory;
+  std::array<component_pos_t, 100> pos_components;
+  std::array<component_health_t, 100> health_components;
+
+  manager_t manager(correlation_memory, pos_components, health_components);
+  entity_t cube = manager.new_entity();
+  component_indices_t* cube_indices = manager.find_component_indices(cube);
+  ENSURE(cube_indices != nullptr, "")
+  ENSURE(manager.has_component<component_pos_t>(cube) == false, "")
+  ENSURE(manager.get_component<component_pos_t>(cube) == nullptr, "")
+
+  auto *pos = manager.add_component<component_pos_t>(cube);
+  ENSURE(pos != nullptr, "")
+
+  ENSURE(manager.has_component<component_pos_t>(cube) == true, "")
+  pos = manager.get_component<component_pos_t>(cube);
+  ENSURE(pos != nullptr, "")
+  pos->x = 3.0f;
+  ENSURE(pos_components[0].x == 3.0f, "")
+   
+
+	  
+
+	  
+  //auto* pos = manager.add_component<component_pos_t>(cube);
+  //pos->x = 2.0f;
 
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
@@ -453,13 +499,13 @@ int main() {
     }
 
     if (button_w.is_pressed()) {
-      camera.add_rotation(-movespeed, 0.0f);
+      camera.add_rotation(movespeed, 0.0f);
     }
     if (button_a.is_pressed()) {
       camera.add_rotation(0.0f, movespeed);
     }
     if (button_s.is_pressed()) {
-      camera.add_rotation(movespeed, 0.0f);
+      camera.add_rotation(-movespeed, 0.0f);
     }
     if (button_d.is_pressed()) {
       camera.add_rotation(0.0f, -movespeed);
@@ -478,18 +524,12 @@ int main() {
     std::memcpy(direct_uniforms[next_frame_info.flightframe].memory_ptr,
                 &cube_draw_info, sizeof(cube_draw_info));
 
-    alex::memory_buffer_write_info_t write_info;
-    write_info.physical_device = core.physical_device;
-    write_info.device = core.device;
-    write_info.memory = &direct_uniforms[next_frame_info.flightframe];
-    write_info.write_size = uniforms[next_frame_info.flightframe].memory_size;
-    write_info.commandbuffer = next_frame_info.presentation_commandbuffer;
-    uniforms[next_frame_info.flightframe].record_write(write_info);
-
-    alex::graph::record_info_t graph_record_info;
-    graph_record_info.commandbuffer =
-        next_frame_info.presentation_commandbuffer;
-    graph_record_info.flightframe = next_frame_info.flightframe;
+    std::vector<alex::graph::uploadpass_command_t> upload_commands{
+        alex::graph::command::buffer_upload_t{
+            .physical_device = core.physical_device,
+            .device = core.device,
+            .direct_buffer = &direct_uniforms[next_frame_info.flightframe],
+            .buffer = &uniforms[next_frame_info.flightframe]}};
 
     std::vector<alex::graph::renderpass_command_t> geometry_pass_commands{
         alex::graph::command::set_viewport_t{
@@ -515,6 +555,14 @@ int main() {
             .first_instance = 0,
             .vertex_count = static_cast<std::uint32_t>(cube_vertices.size()),
             .first_vertex = 0}};
+
+    alex::graph::record_info_t graph_record_info;
+    graph_record_info.commandbuffer =
+        next_frame_info.presentation_commandbuffer;
+    graph_record_info.flightframe = next_frame_info.flightframe;
+
+    graph_record_info.uploadpass_commands.emplace_back("upload",
+                                                       upload_commands);
 
     graph_record_info.renderpass_commands.emplace_back("geometry-pass",
                                                        geometry_pass_commands);

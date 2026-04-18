@@ -30,29 +30,36 @@ std::string_view get_name(node_t &node) {
     return p->name;
   }
 
-  ENSURE(false, "invalid node type")
-  return "";
+  UNREACHABLE("invalid node type")
+  std::unreachable();
 }
 
 void add_dependency(node_t &node, node_t *dependency) {
   ENSURE(dependency != nullptr, "got nullptr dependency")
   if (auto *p = std::get_if<renderpass_node_t>(&node)) {
     p->dependencies.push_back(dependency);
+    return;
   } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
     p->dependencies.push_back(dependency);
+    return;
   }
 
-  ENSURE(false, "invalid node type")
+  UNREACHABLE("invalid node type")
+  std::unreachable();
 }
 
 void add_parent(node_t &node, node_t *parent) {
+  ENSURE(parent != nullptr, "got nullptr dependency")
   if (auto *p = std::get_if<renderpass_node_t>(&node)) {
     p->parents.push_back(parent);
+    return;
   } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
     p->parents.push_back(parent);
+    return;
   }
 
-  ENSURE(false, "invalid node type")
+  UNREACHABLE("invalid node type")
+  std::unreachable();
 }
 
 std::span<node_t *> get_dependencies(node_t &node) {
@@ -62,7 +69,8 @@ std::span<node_t *> get_dependencies(node_t &node) {
     return p->dependencies;
   }
 
-  ENSURE(false, "invalid node type")
+  UNREACHABLE("invalid node type")
+  std::unreachable();
 }
 
 graph_t::graph_t(graph_info_t &info) {
@@ -75,6 +83,7 @@ graph_t::graph_t(graph_info_t &info) {
   // prune_unused_resources();
   // prune_unused_nodes();
 
+  sort_nodes();
   create_framepass_resources(info);
   create_framepass_renderpasses(info);
 }
@@ -159,16 +168,13 @@ void graph_t::init_nodes(graph_info_t &info) {
       resource_t *resource = find_resource(output);
       renderpass->outputs.push_back(resource);
     }
-    std::println("inited renderpass {}", renderpass->name);
   }
 
   for (uploadpass_info_t &uploadpass_info : info.uploadpass_infos) {
     m_nodes.push_back(std::make_unique<node_t>(uploadpass_node_t{}));
     auto *uploadpass = std::get_if<uploadpass_node_t>(m_nodes.back().get());
-	ENSURE(uploadpass != nullptr, "")
-	uploadpass->name = uploadpass_info.name;
-
-    std::println("inited uploadpass {}", uploadpass->name);
+    ENSURE(uploadpass != nullptr, "")
+    uploadpass->name = uploadpass_info.name;
   }
 }
 
@@ -207,7 +213,6 @@ void graph_t::connect_node_dependencies(graph_info_t &info) {
       node_t *dependency = find_node(dependency_name);
       ENSURE(dependency != nullptr, "nullptr dependency for node {}",
              get_name(*node))
-	  std::println("adding dependency {} to node {}", get_name(*dependency), get_name(*node));
       add_dependency(*node, dependency);
     }
   }
@@ -228,10 +233,9 @@ void graph_t::print_execution_order(std::ostream &os) {
   std::println(os, "nodes:");
   for (std::unique_ptr<node_t> &current : m_nodes) {
     ENSURE(current != nullptr, "")
-    std::println(os, "\t{}:", get_name(*current));
 
     if (auto *p = std::get_if<renderpass_node_t>(current.get())) {
-      std::println(os, "\t\t[renderpass]");
+      std::println(os, "\t[renderpass] \"{}\"", p->name);
       if (!p->inputs.empty()) {
         std::print(os, "\t\tin: [ ");
         for (resource_t *input : p->inputs) {
@@ -256,10 +260,11 @@ void graph_t::print_execution_order(std::ostream &os) {
         std::println(os, "\t\tdepth attachment: [ {} ]",
                      p->depth_attachment->name);
       }
-    } else if (/*auto *p = */ std::get_if<uploadpass_node_t>(current.get())) {
-      std::println(os, "\t\t[uploadpass]");
+    } else if (auto *p = std::get_if<uploadpass_node_t>(current.get())) {
+      std::println(os, "\t[uploadpass] \"{}\"", p->name);
     } else {
-      ENSURE(false, "")
+      UNREACHABLE("invalid node type")
+      std::unreachable();
     }
 
     if (!get_dependencies(*current).empty()) {
@@ -275,6 +280,8 @@ void graph_t::print_execution_order(std::ostream &os) {
 namespace traits {
 static constexpr std::string_view const framepass_node =
     "[shape=box, style=outline, color=black]";
+static constexpr std::string_view const uploadpass_node =
+    "[shape=box, style=outline, color=blue]";
 static constexpr std::string_view const attachment_node =
     "[shape=oval, style=outline, color=red]";
 static constexpr std::string_view const resource_node =
@@ -301,7 +308,14 @@ void graph_t::print_graphviz(std::ostream &os) {
 
   for (std::unique_ptr<node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
-    std::println(os, "\t\"{}\" {}", get_name(*node), traits::framepass_node);
+    if (auto *p = std::get_if<renderpass_node_t>(node.get())) {
+      std::println(os, "\t\"{}\" {}", p->name, traits::framepass_node);
+    } else if (auto *p = std::get_if<uploadpass_node_t>(node.get())) {
+      std::println(os, "\t\"{}\" {}", p->name, traits::uploadpass_node);
+    } else {
+      UNREACHABLE("invalid node type")
+      std::unreachable();
+    }
   }
 
   for (std::unique_ptr<node_t> &current : m_nodes) {
@@ -331,7 +345,8 @@ void graph_t::print_graphviz(std::ostream &os) {
 
     } else if (/*auto *p = */ std::get_if<uploadpass_node_t>(current.get())) {
     } else {
-      ENSURE(false, "")
+      UNREACHABLE("invalid node type")
+      std::unreachable();
     }
 
     for (node_t *dependency : get_dependencies(*current)) {
@@ -343,6 +358,27 @@ void graph_t::print_graphviz(std::ostream &os) {
   }
 
   std::println(os, "}}");
+}
+
+void graph_t::sort_nodes() {
+  // TODO: i do not think sorting like this (only checking a single dependency
+  // layer) is good enough..
+
+  auto const is_a_dependency = [](std::unique_ptr<node_t> &a,
+                       std::unique_ptr<node_t> &b) -> bool {
+    ENSURE(a != nullptr, "found nullptr node")
+    ENSURE(b != nullptr, "found nullptr node")
+
+    for (node_t *dependency : get_dependencies(*a)) {
+      ENSURE(dependency != nullptr, "found nullptr dependency")
+      if (get_name(*dependency) == get_name(*b))
+        return false;
+    }
+
+    return true;
+  };
+
+  std::ranges::sort(m_nodes, is_a_dependency);
 }
 
 void graph_t::create_framepass_resources(graph_info_t &info) {
@@ -401,7 +437,8 @@ void graph_t::create_framepass_resources(graph_info_t &info) {
 
       m_texture_storage.add(resource->name, attachments);
     } else {
-      ENSURE(false, "resource type not supported yet")
+      UNREACHABLE("invalid resource type")
+      std::unreachable();
     }
   }
 }
@@ -447,13 +484,114 @@ void graph_t::create_framepass_renderpasses(graph_info_t &info) {
   }
 }
 
+void uploadpass_node_t::record(std::span<uploadpass_command_t> commands,
+                               vk::CommandBuffer commandbuffer) {
+  for (uploadpass_command_t &command : commands) {
+    if (auto *p = std::get_if<command::buffer_upload_t>(&command)) {
+      alex::memory_buffer_write_info_t write_info;
+      write_info.physical_device = p->physical_device;
+      write_info.device = p->device;
+      write_info.memory = p->direct_buffer;
+      write_info.write_size = p->buffer->memory_size;
+      write_info.commandbuffer = commandbuffer;
+      p->buffer->record_write(write_info);
+    } else {
+      UNREACHABLE("invalid uploadpass command")
+      std::unreachable();
+    }
+  }
+}
+
+void renderpass_node_t::record(std::span<renderpass_command_t> commands,
+                               vk::CommandBuffer commandbuffer,
+                               std::uint32_t flightframe) {
+  const auto render_area =
+      vk::Rect2D{}
+          .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
+          .setExtent(vk::Extent2D(extent.width, extent.height));
+
+  ENSURE(geometry_pass.renderpass != VK_NULL_HANDLE,
+         "renderpass is nullhandle for node {}", name)
+  ENSURE(geometry_pass.framebuffers[flightframe] != VK_NULL_HANDLE,
+         "framebuffer is nullhandle for node {}", name)
+
+  const auto renderpass_begin_info =
+      vk::RenderPassBeginInfo{}
+          .setRenderPass(geometry_pass.renderpass)
+          .setFramebuffer(geometry_pass.framebuffers[flightframe])
+          .setRenderArea(render_area)
+          .setClearValues(geometry_pass.clearvalues);
+
+  commandbuffer.beginRenderPass(renderpass_begin_info,
+                                vk::SubpassContents::eInline);
+
+  for (renderpass_command_t &command : commands) {
+    if (auto *p = std::get_if<command::draw_t>(&command)) {
+      commandbuffer.draw(p->vertex_count, p->instance_count, p->first_vertex,
+                         p->first_instance);
+    } else if (auto *p = std::get_if<command::bind_pipeline_t>(&command)) {
+      commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, p->pipeline);
+    } else if (auto *p = std::get_if<command::set_viewport_t>(&command)) {
+      auto viewport = vk::Viewport{}
+                          .setX(p->x)
+                          .setY(p->y)
+                          .setWidth(p->w)
+                          .setHeight(p->h)
+                          .setMinDepth(p->depth.min)
+                          .setMaxDepth(p->depth.max);
+
+      commandbuffer.setViewport(0, viewport);
+    } else if (auto *p = std::get_if<command::set_scissor_t>(&command)) {
+      auto scissor = vk::Rect2D{}.setOffset(p->offset).setExtent(p->extent);
+      commandbuffer.setScissor(0, scissor);
+    } else if (auto *p = std::get_if<command::bind_vertexbuffer_t>(&command)) {
+
+      commandbuffer.bindVertexBuffers(
+          p->first_binding, p->binding_offsets.size(), p->buffers.data(),
+          p->binding_offsets.data());
+
+    } else if (auto *p = std::get_if<command::bind_indexbuffer_t>(&command)) {
+      commandbuffer.bindIndexBuffer(p->buffer, p->offset, p->type);
+    } else if (auto *p =
+                   std::get_if<command::bind_descriptorsets_t>(&command)) {
+      commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                                       p->layout, p->first_set, p->sets.size(),
+                                       p->sets.data(), 0, nullptr);
+    } else {
+      UNREACHABLE("invalid draw command type")
+      std::unreachable();
+    }
+  }
+
+  commandbuffer.endRenderPass();
+}
+
 void graph_t::record(record_info_t &info) {
 
   for (std::unique_ptr<node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
-    auto *renderpass = std::get_if<renderpass_node_t>(node.get());
-    if (renderpass == nullptr) {
-      continue;
+    if (auto *renderpass = std::get_if<renderpass_node_t>(node.get())) {
+      auto found_commands = std::ranges::find_if(
+          info.renderpass_commands, [&](renderpass_commands_t &commands) {
+            return commands.renderpass_name == get_name(*node);
+          });
+
+      if (found_commands != info.renderpass_commands.end()) {
+        renderpass->record(found_commands->commands, info.commandbuffer,
+                           info.flightframe);
+      }
+    } else if (auto *uploadpass = std::get_if<uploadpass_node_t>(node.get())) {
+      auto found_commands = std::ranges::find_if(
+          info.uploadpass_commands, [&](uploadpass_commands_t &commands) {
+            return commands.renderpass_name == get_name(*node);
+          });
+
+      if (found_commands != info.uploadpass_commands.end()) {
+        uploadpass->record(found_commands->commands, info.commandbuffer);
+      }
+    } else {
+      UNREACHABLE("invalid node")
+      std::unreachable();
     }
 
 #if 0    
@@ -500,78 +638,6 @@ void graph_t::record(record_info_t &info) {
                                     barrier);
     }
 #endif
-
-    auto found = std::ranges::find_if(
-        info.renderpass_commands, [&](renderpass_commands_t &commands) {
-          return commands.renderpass_name == get_name(*node);
-        });
-
-    if (found == info.renderpass_commands.end()) {
-      LOG_WARN("renderpass node {} had no renderpass commands!", get_name(*node))
-      continue;
-    }
-
-    const auto render_area =
-        vk::Rect2D{}
-            .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
-            .setExtent(vk::Extent2D(renderpass->extent.width, renderpass->extent.height));
-
-    ENSURE(renderpass->geometry_pass.renderpass != VK_NULL_HANDLE,
-           "renderpass is nullhandle for node {}", renderpass->name)
-    ENSURE(renderpass->geometry_pass.framebuffers[info.flightframe] != VK_NULL_HANDLE,
-           "framebuffer is nullhandle for node {}", renderpass->name)
-
-    const auto renderpass_begin_info =
-        vk::RenderPassBeginInfo{}
-            .setRenderPass(renderpass->geometry_pass.renderpass)
-            .setFramebuffer(renderpass->geometry_pass.framebuffers[info.flightframe])
-            .setRenderArea(render_area)
-            .setClearValues(renderpass->geometry_pass.clearvalues);
-
-    info.commandbuffer.beginRenderPass(renderpass_begin_info,
-                                       vk::SubpassContents::eInline);
-
-    for (renderpass_command_t &command : found->commands) {
-      if (auto *p = std::get_if<command::draw_t>(&command)) {
-        info.commandbuffer.draw(p->vertex_count, p->instance_count,
-                                p->first_vertex, p->first_instance);
-      } else if (auto *p = std::get_if<command::bind_pipeline_t>(&command)) {
-        info.commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                        p->pipeline);
-      } else if (auto *p = std::get_if<command::set_viewport_t>(&command)) {
-
-        auto viewport = vk::Viewport{}
-                            .setX(p->x)
-                            .setY(p->y)
-                            .setWidth(p->w)
-                            .setHeight(p->h)
-                            .setMinDepth(p->depth.min)
-                            .setMaxDepth(p->depth.max);
-
-        info.commandbuffer.setViewport(0, viewport);
-      } else if (auto *p = std::get_if<command::set_scissor_t>(&command)) {
-        auto scissor = vk::Rect2D{}.setOffset(p->offset).setExtent(p->extent);
-        info.commandbuffer.setScissor(0, scissor);
-      } else if (auto *p =
-                     std::get_if<command::bind_vertexbuffer_t>(&command)) {
-
-        info.commandbuffer.bindVertexBuffers(
-            p->first_binding, p->binding_offsets.size(), p->buffers.data(),
-            p->binding_offsets.data());
-
-      } else if (auto *p = std::get_if<command::bind_indexbuffer_t>(&command)) {
-        info.commandbuffer.bindIndexBuffer(p->buffer, p->offset, p->type);
-      } else if (auto *p =
-                     std::get_if<command::bind_descriptorsets_t>(&command)) {
-        info.commandbuffer.bindDescriptorSets(
-            vk::PipelineBindPoint::eGraphics, p->layout, p->first_set,
-            p->sets.size(), p->sets.data(), 0, nullptr);
-      } else {
-        ENSURE(false, "Invalid unknown draw command")
-      }
-    }
-
-    info.commandbuffer.endRenderPass();
   }
 }
 

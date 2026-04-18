@@ -10,6 +10,7 @@ enum class LogLevel {
   Error = 1,
   Warning = 2,
   Info = 3,
+  Debug = 4,
 };
 
 constexpr auto to_string_view(LogLevel level) -> std::string_view {
@@ -23,6 +24,8 @@ constexpr auto to_string_view(LogLevel level) -> std::string_view {
     return "Warning";
   case LogLevel::Info:
     return "Info";
+  case LogLevel::Debug:
+    return "Debug";
   };
 
   std::unreachable();
@@ -61,3 +64,4 @@ constexpr void log_fmt(LogLevel level, std::format_string<Args...> fmt, Args &&.
 #define LOG_ERROR(MSG, ...) log_fmt(LogLevel::Error, MSG, ##__VA_ARGS__);
 #define LOG_WARN(MSG, ...) log_fmt(LogLevel::Warning, MSG, ##__VA_ARGS__);
 #define LOG_INFO(MSG, ...) log_fmt(LogLevel::Info, MSG, ##__VA_ARGS__);
+#define LOG_DEBUG(MSG, ...) log_fmt(LogLevel::Debug, MSG, ##__VA_ARGS__);
