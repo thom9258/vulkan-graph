@@ -9,7 +9,7 @@
 #include "texture_storage.hpp"
 #include "uniform_descriptorsets.hpp"
 
-#include "../alex_ecs/ecs.hpp"
+#include "../sukoshi_ecs/sukoshi_ecs.hpp"
 
 #include "button.hpp"
 #include "deltaclock.hpp"
@@ -59,21 +59,15 @@ int main() {
   };
  
   static constexpr std::size_t max_entities = 100;
-
-  using manager_t = alex::ecs::manager_t<
-      alex::ecs::component_policy_t<component_mesh_t, max_entities>,
-      alex::ecs::component_policy_t<component_transform_t, max_entities>>;
-
-  using entity_t = manager_t::entity_t;
-  using component_indices_t = manager_t::component_indices_t;
-  using correlation_t = manager_t::correlation_t;
-
-  std::array<manager_t::correlation_t, max_entities> correlation_memory;
+  using manager_t = sukoshi::ecs::manager_t<
+      sukoshi::ecs::component_policy_t<component_mesh_t, max_entities>,
+      sukoshi::ecs::component_policy_t<component_transform_t, max_entities>>;
+  using entity_id_t = manager_t::entity_id_t;
+  std::array<manager_t::entity_t, max_entities> entity_memory;
   std::array<component_mesh_t, max_entities> mesh_components;
   std::array<component_transform_t, max_entities> transform_components;
-
-  manager_t manager(correlation_memory, mesh_components, transform_components);
-  entity_t cube = manager.new_entity();
+  manager_t manager(entity_memory, mesh_components, transform_components);
+  entity_id_t cube = manager.new_entity();
   auto *transform = manager.add_component<component_transform_t>(cube);
   transform->mat = glm::mat4(1.0f);
 
