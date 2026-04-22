@@ -13,17 +13,6 @@
 
 namespace alex {
 
-#if 0
-static VKAPI_ATTR VkBool32 VKAPI_CALL
-debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-              VkDebugUtilsMessageTypeFlagsEXT messageType,
-              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
-              void *pUserData) {
-  std::println("validation layer: {}", pCallbackData->pMessage);
-  return VK_FALSE;
-}
-#endif
-
 void context_t::init(context_info_t &info, memory::arena &allocator) {
   if (info.instance_extensions.empty()) {
     LOG_WARN("No Vulkan Instance Extensions were provided");

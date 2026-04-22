@@ -1,8 +1,8 @@
 #pragma once
 
-#include "arena.hpp"
-#include "drawing.hpp"
-#include "ensure.hpp"
+#include <alex/arena.hpp>
+#include <alex/drawing.hpp>
+#include <alex/ensure.hpp>
 
 #define SIMPLE_GEOMETRY_IMPLEMENTATION
 #include <simple_geometry.h>

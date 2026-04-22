@@ -1,11 +1,12 @@
 #pragma once
 
-#include "arena.hpp"
-#include "core.hpp"
+#include <alex/arena.hpp>
+#include <alex/core.hpp>
+#include <alex/drawing.hpp>
+#include <alex/ensure.hpp>
+
 #include "draw_info_uniform.hpp"
-#include "drawing.hpp"
 #include "ecs.hpp"
-#include "ensure.hpp"
 #include "geometry_primitives.hpp"
 
 struct cube_prefab_info_t {

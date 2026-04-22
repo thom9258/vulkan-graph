@@ -22,19 +22,19 @@ FetchContent_Declare(SimpleGeometry
 FetchContent_MakeAvailable(SimpleGeometry)
 
 set(PROGRAM_SOURCES
-  log.cpp
-  arena.cpp
-  core.cpp
-  find_memory_type.cpp
-  memory_buffer.cpp
-  presentation_context.cpp
-  texture.cpp
-  texture_storage.cpp
-  graph.cpp
-  graph_builder.cpp
-  geometrypass_builder.cpp
-  pipeline_builder.cpp
-  uniform_descriptorsets.cpp
+  ../../alex/log.cpp
+  ../../alex/arena.cpp
+  ../../alex/core.cpp
+  ../../alex/find_memory_type.cpp
+  ../../alex/memory_buffer.cpp
+  ../../alex/presentation_context.cpp
+  ../../alex/texture.cpp
+  ../../alex/texture_storage.cpp
+  ../../alex/graph.cpp
+  ../../alex/graph_builder.cpp
+  ../../alex/geometrypass_builder.cpp
+  ../../alex/pipeline_builder.cpp
+  ../../alex/uniform_descriptorsets.cpp
 )
 
 add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)
@@ -43,6 +43,8 @@ target_include_directories(${PROJECT_NAME}
   PRIVATE 
     ${Vulkan_INCLUDE_DIR}
     ${SDL2_INCLUDE_DIRS}
+	../../
+	../
 )
 
 target_link_libraries(${PROJECT_NAME} 

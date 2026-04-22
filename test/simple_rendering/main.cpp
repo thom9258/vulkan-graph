@@ -1,17 +1,17 @@
-#include "core.hpp"
-#include "cube_prefab.hpp"
-#include "draw_info_uniform.hpp"
-#include "drawing.hpp"
-#include "ensure.hpp"
-#include "graph.hpp"
-#include "memory_buffer.hpp"
-#include "pipeline_builder.hpp"
-#include "presentation_context.hpp"
-#include "texture_storage.hpp"
-#include "uniform_descriptorsets.hpp"
+#include <alex/core.hpp>
+#include <alex/drawing.hpp>
+#include <alex/ensure.hpp>
+#include <alex/graph.hpp>
+#include <alex/memory_buffer.hpp>
+#include <alex/pipeline_builder.hpp>
+#include <alex/presentation_context.hpp>
+#include <alex/texture_storage.hpp>
+#include <alex/uniform_descriptorsets.hpp>
 
 #include "ecs.hpp"
 
+#include "draw_info_uniform.hpp"
+#include "cube_prefab.hpp"
 #include "button.hpp"
 #include "deltaclock.hpp"
 #include "glm.hpp"
