@@ -107,6 +107,9 @@ struct renderpass_node_t;
 struct uploadpass_node_t;
 using node_t = std::variant<renderpass_node_t, uploadpass_node_t>;
 
+bool is_renderpass_node(node_t &node);
+bool is_uploadpass_node(node_t &node);
+
 std::string_view get_name(node_t &node);
 std::span<node_t *> get_dependencies(node_t &node);
 

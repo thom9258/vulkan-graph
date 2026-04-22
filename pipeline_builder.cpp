@@ -153,9 +153,9 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
           .setDepthClampEnable(false)
           .setRasterizerDiscardEnable(false)
           // TODO: next 3 should be exposed
-          .setPolygonMode(vk::PolygonMode::eFill)
-          .setCullMode(vk::CullModeFlagBits::eBack)
-          .setFrontFace(vk::FrontFace::eCounterClockwise)
+          .setPolygonMode(info.polygon_mode)
+          .setCullMode(info.cull_mode)
+          .setFrontFace(info.front_face)
           .setDepthBiasEnable(false)
           .setDepthBiasConstantFactor(0.0f)
           .setDepthBiasClamp(0.0f)

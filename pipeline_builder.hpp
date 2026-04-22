@@ -18,6 +18,9 @@ struct pipeline_info_t {
   vk::Device device;
   vk::Extent3D extent;
   vk::RenderPass renderpass;
+  vk::PolygonMode polygon_mode{vk::PolygonMode::eFill};
+  vk::CullModeFlags cull_mode{vk::CullModeFlagBits::eBack};
+  vk::FrontFace front_face{vk::FrontFace::eClockwise};
   std::filesystem::path vertex_program_path;
   std::filesystem::path fragment_program_path;
   std::vector<vk::DescriptorSetLayout> setlayouts;

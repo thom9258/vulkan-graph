@@ -1,7 +1,8 @@
 #include "core.hpp"
+#include "cube_prefab.hpp"
+#include "draw_info_uniform.hpp"
 #include "drawing.hpp"
 #include "ensure.hpp"
-#include "geometry_primitives.hpp"
 #include "graph.hpp"
 #include "memory_buffer.hpp"
 #include "pipeline_builder.hpp"
@@ -9,7 +10,7 @@
 #include "texture_storage.hpp"
 #include "uniform_descriptorsets.hpp"
 
-#include "../sukoshi_ecs/sukoshi_ecs.hpp"
+#include "ecs.hpp"
 
 #include "button.hpp"
 #include "deltaclock.hpp"
@@ -47,33 +48,11 @@ std::size_t constexpr mb = 1'000'000;
 int main() {
   global::set_log_level(LogLevel::Info);
 
-  struct component_mesh_t {
-	  alex::memory_buffer_t vertices;
-	  alex::flightframe_array_t<alex::direct_memory_buffer_t> direct_uniforms;
-	  alex::flightframe_array_t<alex::memory_buffer_t> uniforms;
-	  alex::uniform_descriptorsets_t descriptorsets;
-  };
-
-  struct component_transform_t {
-	  glm::mat4 mat;
-  };
- 
-  static constexpr std::size_t max_entities = 100;
-  using manager_t = sukoshi::ecs::manager_t<
-      sukoshi::ecs::component_policy_t<component_mesh_t, max_entities>,
-      sukoshi::ecs::component_policy_t<component_transform_t, max_entities>>;
-  using entity_id_t = manager_t::entity_id_t;
-  std::array<manager_t::entity_t, max_entities> entity_memory;
+  std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
   std::array<component_mesh_t, max_entities> mesh_components;
   std::array<component_transform_t, max_entities> transform_components;
-  manager_t manager(entity_memory, mesh_components, transform_components);
-  entity_id_t cube = manager.new_entity();
-  auto *transform = manager.add_component<component_transform_t>(cube);
-  transform->mat = glm::mat4(1.0f);
+  ecs::manager_t manager(entity_memory, mesh_components, transform_components);
 
-  auto *mesh = manager.add_component<component_mesh_t>(cube);
-   
- 
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
   alex::memory::arena init_arena(memory);
@@ -135,41 +114,6 @@ int main() {
   SDL_GetWindowSize(window, &width, &height);
 
   /* ****************************************
-   * Initialization Commandbuffer Setup
-   *
-   * TODO: everything done by this commandbuffer should be able to be put
-   *       into a work graph, where we do not specify the commandbuffer.
-   *       This is just a preliminary test implementation.
-   */
-  auto init_commandbuffer_alloc_info =
-      vk::CommandBufferAllocateInfo{}
-          .setCommandPool(core.commandpool)
-          .setLevel(vk::CommandBufferLevel::ePrimary)
-          .setCommandBufferCount(1);
-
-  vk::CommandBuffer init_commandbuffer =
-      core.device.allocateCommandBuffers(init_commandbuffer_alloc_info).front();
-
-  init_commandbuffer.begin(vk::CommandBufferBeginInfo{});
-
-  /* ****************************************
-   * Set up a staging arena for hostvisible GPU memory
-   * Using this we can quickly load vertices and indices
-   * into proper staging memory.
-   */
-  alex::direct_memory_buffer_info_t staging_arena_memory_info;
-  staging_arena_memory_info.physical_device = core.physical_device;
-  staging_arena_memory_info.device = core.device;
-  staging_arena_memory_info.buffer_type = alex::memory_buffer_type_t::basic;
-  staging_arena_memory_info.memory_size = 10 * mb;
-  alex::direct_memory_buffer_t staging_arena_memory;
-  staging_arena_memory.init(staging_arena_memory_info);
-
-  alex::memory::arena init_staging_arena(
-      {static_cast<uint8_t *>(staging_arena_memory.memory_ptr),
-       staging_arena_memory.memory_size});
-
-  /* ****************************************
    * Create DescriptorSet Layout for geometry pipeline
    */
   std::array<vk::DescriptorSetLayoutBinding,
@@ -189,176 +133,51 @@ int main() {
       core.device.createDescriptorSetLayout(uniform_setinfo, nullptr);
 
   /* ****************************************
-   * Vertex Buffer Setup
+   * Initialization Commandbuffer Setup
+   *
+   * TODO: everything done by this commandbuffer should be able to be put
+   *       into a work graph, where we do not specify the commandbuffer.
+   *       This is just a preliminary test implementation.
    */
-  std::span<alex::vertex_t> cube_vertices =
-      load_cube(init_arena, 0.0f, 1.0f, 0.0f);
+  auto init_commandbuffer_alloc_info =
+      vk::CommandBufferAllocateInfo{}
+          .setCommandPool(core.commandpool)
+          .setLevel(vk::CommandBufferLevel::ePrimary)
+          .setCommandBufferCount(1);
 
-  alex::direct_memory_buffer_info_t direct_cube_buffer_info;
-  direct_cube_buffer_info.physical_device = core.physical_device;
-  direct_cube_buffer_info.device = core.device;
-  direct_cube_buffer_info.buffer_type = alex::memory_buffer_type_t::basic;
-  direct_cube_buffer_info.memory_size =
-      sizeof(cube_vertices[0]) * cube_vertices.size();
+  vk::CommandBuffer init_commandbuffer =
+      core.device.allocateCommandBuffers(init_commandbuffer_alloc_info).front();
 
-  alex::direct_memory_buffer_t direct_cube_buffer;
-  direct_cube_buffer.init(direct_cube_buffer_info);
-  std::memcpy(direct_cube_buffer.memory_ptr, cube_vertices.data(),
-              direct_cube_buffer.memory_size);
-  LOG_INFO("Created direct vertex buffer");
+  init_commandbuffer.begin(vk::CommandBufferBeginInfo{});
 
-  alex::memory_buffer_info_t cube_buffer_info;
-  cube_buffer_info.physical_device = core.physical_device;
-  cube_buffer_info.device = core.device;
-  cube_buffer_info.buffer_type = alex::memory_buffer_type_t::vertices;
-  cube_buffer_info.memory_size = direct_cube_buffer_info.memory_size;
+  cube_prefab_info_t cube_prefab_info;
+  cube_prefab_info.manager = &manager;
+  cube_prefab_info.core = &core;
+  cube_prefab_info.set_layout = geometry_pipeline_info_setlayout;
+  cube_prefab_info.commandbuffer = init_commandbuffer;
+  cube_prefab_info.arena = &init_arena;
+  cube_prefab_info.r = 1.0f;
+  cube_prefab_info.g = 0.0f;
+  cube_prefab_info.b = 0.0f;
+  cube_prefab_info.transform =
+      glm::translate(glm::mat4(1.0f), glm::vec3(1.5f, 0.0f, 0.0f));
 
-  alex::memory_buffer_write_info_t cube_buffer_write_info;
-  cube_buffer_write_info.physical_device = core.physical_device;
-  cube_buffer_write_info.device = core.device;
-  cube_buffer_write_info.memory = &direct_cube_buffer;
-  cube_buffer_write_info.write_size = direct_cube_buffer.memory_size;
-  cube_buffer_write_info.commandbuffer = init_commandbuffer;
+  ecs::entity_id_t a = add_cube_prefab(cube_prefab_info);
 
-#if 0
-  alex::memory_buffer_t cube_buffer;
-  cube_buffer.init(cube_buffer_info);
-  cube_buffer.record_write(cube_buffer_write_info);
-  LOG_INFO("Created cube vertex buffer");
-#else
-  mesh->vertices.init(cube_buffer_info);
-  mesh->vertices.record_write(cube_buffer_write_info);
-  LOG_INFO("Created cube vertex buffer");
-#endif
+  cube_prefab_info.r = 0.0f;
+  cube_prefab_info.g = 0.0f;
+  cube_prefab_info.b = 1.0f;
+  cube_prefab_info.transform =
+      glm::translate(glm::mat4(1.0f), glm::vec3(-1.5f, 0.0f, 0.0f));
+  ecs::entity_id_t b = add_cube_prefab(cube_prefab_info);
 
-  /* ****************************************
-   * Uniform Buffers Setup
-   */
-
-  DeltaClock deltaclock;
-
-  struct directional_light_t {
-    glm::vec3 direction;
-    float _padding0;
-    glm::vec3 color;
-    float _padding1;
-  };
-
-  struct ambient_light_t {};
-
-  struct draw_info_t {
-    glm::mat4 view;
-    glm::mat4 projection;
-    glm::mat4 model;
-  };
-
-  float constexpr orbit_radius = 5.0f;
-  glm::vec3 constexpr orbit_target = glm::vec3(0.0f);
-  OrbitCamera camera(orbit_target, orbit_radius);
-
-  draw_info_t cube_draw_info;
-  cube_draw_info.view = camera.view();
-
-  const float aspect = static_cast<float>(width) / static_cast<float>(height);
-  const float near_plane = 1.0f, far_plane = 20.0f;
-  cube_draw_info.projection =
-      glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
-
-  cube_draw_info.model = glm::mat4(1.0f);
-  
-  alex::direct_memory_buffer_info_t direct_uniform_info;
-  direct_uniform_info.physical_device = core.physical_device;
-  direct_uniform_info.device = core.device;
-  direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-  direct_uniform_info.memory_size = sizeof(cube_draw_info);
-
-#if 0
-  alex::flightframe_array_t<alex::direct_memory_buffer_t> direct_uniforms;
-  for (alex::direct_memory_buffer_t &uniform : direct_uniforms) {
-#else
-  for (alex::direct_memory_buffer_t &uniform : mesh->direct_uniforms) {
-#endif
-    uniform.init(direct_uniform_info);
-    std::memcpy(uniform.memory_ptr, &cube_draw_info, sizeof(cube_draw_info));
-  }; 
-
-#if 0
-  alex::flightframe_array_t<alex::memory_buffer_t> uniforms;
-  for (auto [i, uniform] : uniforms | std::views::enumerate) {
-#else
-  for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
- #endif
-    alex::memory_buffer_info_t uniform_info;
-    uniform_info.physical_device = core.physical_device;
-    uniform_info.device = core.device;
-    uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
-    uniform_info.memory_size = direct_uniform_info.memory_size;
-    uniform.init(uniform_info);
-
-    alex::memory_buffer_write_info_t write_info;
-    write_info.physical_device = core.physical_device;
-    write_info.device = core.device;
-#if 0
-    write_info.memory = &direct_uniforms[i];
-#else
-    write_info.memory = &mesh->direct_uniforms[i];
-#endif
-    write_info.write_size = uniform.memory_size;
-    write_info.commandbuffer = init_commandbuffer;
-    uniform.record_write(write_info);
-  }
-
-  std::vector<vk::DescriptorPoolSize> const pool_sizes{
-      vk::DescriptorPoolSize{}.setDescriptorCount(4).setType(
-          vk::DescriptorType::eUniformBuffer)};
-
-  auto pool_create_info =
-      vk::DescriptorPoolCreateInfo{}.setPoolSizes(pool_sizes).setMaxSets(4);
-
-  vk::DescriptorPool descriptor_pool =
-      core.device.createDescriptorPool(pool_create_info);
-
-  alex::uniform_descriptorsets_info_t cube_descriptorsets_info;
-  cube_descriptorsets_info.physical_device = core.physical_device;
-  cube_descriptorsets_info.device = core.device;
-  cube_descriptorsets_info.set_count = 2;
-  cube_descriptorsets_info.layout = geometry_pipeline_info_setlayout;
-  cube_descriptorsets_info.pool = descriptor_pool;
-
-#if 0
-  alex::uniform_descriptorsets_t cube_descriptorsets;
-  cube_descriptorsets.init(cube_descriptorsets_info);
-  for (auto [i, uniform] : uniforms | std::views::enumerate) {
-#else
-  mesh->descriptorsets.init(cube_descriptorsets_info);
-  for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
-#endif
-    alex::uniform_descriptorsets_update_info_t update_info;
-    update_info.device = core.device;
-    update_info.set_index = i;
-    update_info.buffer = &uniform;
-    update_info.buffer_offset = 0;
-    update_info.buffer_size = uniform.memory_size;
-#if 0
-    cube_descriptorsets.update(update_info);
-#else
-    mesh->descriptorsets.update(update_info);
-#endif
-  };
-
-  /* ****************************************
-   * Wait for init commands to finish
-   */
   init_commandbuffer.end();
-
   auto fence_create_info = vk::FenceCreateInfo{};
   vk::Fence init_fence = core.device.createFence(fence_create_info);
-
   auto commandbuffer_submit_info =
       vk::SubmitInfo{}.setCommandBuffers(init_commandbuffer);
 
   core.queue.submit(commandbuffer_submit_info, init_fence);
-
   const auto max_wait = std::numeric_limits<unsigned int>::max();
   vk::Result init_wait_result =
       core.device.waitForFences(init_fence, true, max_wait);
@@ -411,6 +230,13 @@ int main() {
   std::println("======================");
   graph.print_graphviz(std::cout);
   std::println("======================");
+
+  DeltaClock deltaclock;
+  OrbitCamera camera(glm::vec3(0.0f), 5.0f);
+  const float aspect = static_cast<float>(width) / static_cast<float>(height);
+  const float near_plane = 1.0f, far_plane = 20.0f;
+  glm::mat4 const projection =
+      glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
 
   /* ****************************************
    * Pipeline Setup using the created graph renderpasses
@@ -529,54 +355,74 @@ int main() {
     next_frame_info.presentation_commandbuffer.begin(
         vk::CommandBufferBeginInfo{});
 
-    cube_draw_info.view = camera.view();
-#if 0
-    std::memcpy(direct_uniforms[next_frame_info.flightframe].memory_ptr,
-                &cube_draw_info, sizeof(cube_draw_info));
-#else
-    std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe].memory_ptr,
-                &cube_draw_info, sizeof(cube_draw_info));
-#endif
-    std::vector<alex::graph::uploadpass_command_t> upload_commands{
-        alex::graph::command::buffer_upload_t{
-            .physical_device = core.physical_device,
-            .device = core.device,
-#if 0
-            .direct_buffer = &direct_uniforms[next_frame_info.flightframe],
-            .buffer = &uniforms[next_frame_info.flightframe]}};
-#else
-            .direct_buffer = &mesh->direct_uniforms[next_frame_info.flightframe],
-            .buffer = &mesh->uniforms[next_frame_info.flightframe]}};
-#endif
+    std::vector<alex::graph::uploadpass_command_t> upload_commands;
+    std::vector<alex::graph::renderpass_command_t> geometry_pass_commands;
 
-    std::vector<alex::graph::renderpass_command_t> geometry_pass_commands{
-        alex::graph::command::set_viewport_t{
-            .x = 0.0f,
-            .y = 0.0f,
-            .w = static_cast<float>(render_extent.width),
-            .h = static_cast<float>(render_extent.height)},
-        alex::graph::command::set_scissor_t{
-            .offset = {0, 0},
-            .extent = {render_extent.width, render_extent.height}},
-        alex::graph::command::bind_pipeline_t{geometry_pipeline.pipeline},
-        alex::graph::command::bind_descriptorsets_t{
-            .layout = geometry_pipeline.layout,
-#if 0
-            .sets = {cube_descriptorsets.get_set(next_frame_info.flightframe)},
-#else
-            .sets = {mesh->descriptorsets.get_set(next_frame_info.flightframe)},
-#endif
-        },
-        alex::graph::command::bind_vertexbuffer_t{
-            .first_binding = 0,
-            .binding_offsets = {0},
-            .first_buffer = 0,
-            .buffers = {mesh->vertices.buffer}},
-        alex::graph::command::draw_t{
-            .instance_count = 1,
-            .first_instance = 0,
-            .vertex_count = static_cast<std::uint32_t>(cube_vertices.size()),
-            .first_vertex = 0}};
+    alex::graph::command::set_viewport_t viewport{
+        .x = 0.0f,
+        .y = 0.0f,
+        .w = static_cast<float>(render_extent.width),
+        .h = static_cast<float>(render_extent.height)};
+
+    alex::graph::command::set_scissor_t scissor{
+        .offset = {0, 0},
+        .extent = {render_extent.width, render_extent.height}};
+
+    alex::graph::command::bind_pipeline_t bind_pipeline{
+        .pipeline = geometry_pipeline.pipeline};
+
+    geometry_pass_commands.push_back(viewport);
+    geometry_pass_commands.push_back(scissor);
+    geometry_pass_commands.push_back(bind_pipeline);
+
+    std::array<ecs::entity_id_t, max_entities> entities;
+    std::size_t entity_count = manager.get_entities(entities);
+
+    entity_count = manager.filter_inplace<component_mesh_t>(
+        std::span(entities).subspan(0, entity_count));
+
+    entity_count = manager.filter_inplace<component_transform_t>(
+        std::span(entities).subspan(0, entity_count));
+
+    for (ecs::entity_id_t entity : entities | std::views::take(entity_count)) {
+      auto *mesh = manager.get_component<component_mesh_t>(entity);
+      auto *transform = manager.get_component<component_transform_t>(entity);
+
+      draw_info_t draw_info;
+      draw_info.view = camera.view();
+      draw_info.projection = projection;
+      draw_info.model = transform->mat;
+      std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe].memory_ptr,
+                  &draw_info, sizeof(draw_info));
+
+      alex::graph::command::buffer_upload_t upload{
+          .physical_device = core.physical_device,
+          .device = core.device,
+          .direct_buffer = &mesh->direct_uniforms[next_frame_info.flightframe],
+          .buffer = &mesh->uniforms[next_frame_info.flightframe]};
+
+      upload_commands.push_back(upload);
+
+      alex::graph::command::bind_descriptorsets_t bind_descriptorsets{
+          .layout = geometry_pipeline.layout,
+          .sets = {mesh->descriptorsets.get_set(next_frame_info.flightframe)},
+      };
+
+      alex::graph::command::bind_vertexbuffer_t bind_vertexbuffer{
+          .first_binding = 0,
+          .binding_offsets = {0},
+          .first_buffer = 0,
+          .buffers = {mesh->vertices.buffer}};
+
+      alex::graph::command::draw_t draw{.instance_count = 1,
+                                        .first_instance = 0,
+                                        .vertex_count = mesh->vertices_length,
+                                        .first_vertex = 0};
+
+      geometry_pass_commands.push_back(bind_descriptorsets);
+      geometry_pass_commands.push_back(bind_vertexbuffer);
+      geometry_pass_commands.push_back(draw);
+    }
 
     alex::graph::record_info_t graph_record_info;
     graph_record_info.commandbuffer =

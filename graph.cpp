@@ -23,6 +23,14 @@ resource_t::resource_t(std::string_view name, texture_info_t texture)
 resource_t::resource_t(std::string_view name, attachment_info_t attachment)
     : name{name}, resource{attachment} {}
 
+
+bool is_renderpass_node(node_t &node) {
+	return std::holds_alternative<renderpass_node_t>(node);
+}
+bool is_uploadpass_node(node_t &node) {
+	return std::holds_alternative<renderpass_node_t>(node);
+}
+
 std::string_view get_name(node_t &node) {
   if (auto *p = std::get_if<renderpass_node_t>(&node)) {
     return p->name;
@@ -567,6 +575,8 @@ void renderpass_node_t::record(std::span<renderpass_command_t> commands,
 }
 
 void graph_t::record(record_info_t &info) {
+
+  //TODO: we are still missing barriers inbetween passes
 
   for (std::unique_ptr<node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
