@@ -12,10 +12,42 @@
 #include <ranges>
 #include <variant>
 #include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
 #include <vulkan/vulkan_to_string.hpp>
 
 namespace alex::graph {
+
+node_sync_t::node_sync_t(node_sync_info_t info) {
+  auto semaphore_create_info = vk::SemaphoreCreateInfo{};
+
+  for (std::vector<vk::Semaphore> &wait_group : wait_groups) {
+    for (std::size_t i = 0; i < info.children_count; i++) {
+      wait_group.emplace_back();
+      vk::Result result = info.device.createSemaphore(
+          &semaphore_create_info, nullptr, &wait_group.back());
+      ENSURE(result == vk::Result::eSuccess, "could not allocate semaphore");
+    }
+  }
+
+  auto commandbuffer_alloc_info =
+      vk::CommandBufferAllocateInfo{}
+          .setLevel(vk::CommandBufferLevel::ePrimary)
+          .setCommandPool(info.commandpool)
+          .setCommandBufferCount(frames_in_flight);
+
+  vk::Result result = info.device.allocateCommandBuffers(
+      &commandbuffer_alloc_info, commandbuffers.data());
+  ENSURE(result == vk::Result::eSuccess, "could not allocate commandbuffers");
+}
+
+vk::CommandBuffer node_sync_t::commandbuffer(std::uint32_t flightframe) {
+  return commandbuffers[flightframe];
+}
+
+std::span<vk::Semaphore> node_sync_t::wait_group(std::uint32_t flightframe) {
+  return wait_groups[flightframe];
+}
 
 resource_t::resource_t(std::string_view name, texture_info_t texture)
     : name{name}, resource{texture} {}
@@ -23,12 +55,11 @@ resource_t::resource_t(std::string_view name, texture_info_t texture)
 resource_t::resource_t(std::string_view name, attachment_info_t attachment)
     : name{name}, resource{attachment} {}
 
-
 bool is_renderpass_node(node_t &node) {
-	return std::holds_alternative<renderpass_node_t>(node);
+  return std::holds_alternative<renderpass_node_t>(node);
 }
 bool is_uploadpass_node(node_t &node) {
-	return std::holds_alternative<renderpass_node_t>(node);
+  return std::holds_alternative<renderpass_node_t>(node);
 }
 
 std::string_view get_name(node_t &node) {
@@ -56,13 +87,13 @@ void add_dependency(node_t &node, node_t *dependency) {
   std::unreachable();
 }
 
-void add_parent(node_t &node, node_t *parent) {
-  ENSURE(parent != nullptr, "got nullptr dependency")
+void add_child(node_t &node, node_t *child) {
+  ENSURE(child != nullptr, "got nullptr dependency")
   if (auto *p = std::get_if<renderpass_node_t>(&node)) {
-    p->parents.push_back(parent);
+    p->children.push_back(child);
     return;
   } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
-    p->parents.push_back(parent);
+    p->children.push_back(child);
     return;
   }
 
@@ -81,19 +112,57 @@ std::span<node_t *> get_dependencies(node_t &node) {
   std::unreachable();
 }
 
+std::span<node_t *> get_children(node_t &node) {
+  if (auto *p = std::get_if<renderpass_node_t>(&node)) {
+    return p->children;
+  } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
+    return p->children;
+  }
+
+  UNREACHABLE("invalid node type")
+  std::unreachable();
+}
+
+node_sync_t &get_sync(node_t &node) {
+  if (auto *p = std::get_if<renderpass_node_t>(&node)) {
+    return p->sync;
+  } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
+    return p->sync;
+  }
+
+  UNREACHABLE("invalid node type")
+  std::unreachable();
+}
+
+std::optional<vk::Semaphore> get_wait_semaphore(node_t &dependency,
+                                                std::string_view name,
+                                                std::uint32_t flightframe) {
+  std::size_t wait_semaphore_index{0};
+  for (node_t *child : get_children(dependency)) {
+    ENSURE(child != nullptr, "found nullptr child for node {}", name)
+    if (get_name(*child) == name) {
+      return get_sync(dependency).wait_group(flightframe)[wait_semaphore_index];
+    }
+
+    wait_semaphore_index++;
+  }
+
+  return std::nullopt;
+}
+
 graph_t::graph_t(graph_info_t &info) {
   ENSURE_NOT(info.framepass_infos.empty(), "must have renderpass infos");
   init_resources(info);
   init_nodes(info);
   connect_node_dependencies(info);
-  connect_node_parents();
+  connect_node_children();
 
   // prune_unused_resources();
   // prune_unused_nodes();
 
   sort_nodes();
   create_framepass_resources(info);
-  create_framepass_renderpasses(info);
+  create_framepass_nodes(info);
 }
 
 void graph_t::init_resources(graph_info_t &info) {
@@ -226,13 +295,14 @@ void graph_t::connect_node_dependencies(graph_info_t &info) {
   }
 }
 
-void graph_t::connect_node_parents() {
+void graph_t::connect_node_children() {
   for (std::unique_ptr<node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node");
     for (node_t *dependency : get_dependencies(*node)) {
       ENSURE(dependency != nullptr,
              "found nullptr dependency specified by node {}", get_name(*node));
-      add_parent(*dependency, node.get());
+
+      add_child(*dependency, node.get());
     }
   }
 }
@@ -373,7 +443,7 @@ void graph_t::sort_nodes() {
   // layer) is good enough..
 
   auto const is_a_dependency = [](std::unique_ptr<node_t> &a,
-                       std::unique_ptr<node_t> &b) -> bool {
+                                  std::unique_ptr<node_t> &b) -> bool {
     ENSURE(a != nullptr, "found nullptr node")
     ENSURE(b != nullptr, "found nullptr node")
 
@@ -451,49 +521,66 @@ void graph_t::create_framepass_resources(graph_info_t &info) {
   }
 }
 
-void graph_t::create_framepass_renderpasses(graph_info_t &info) {
+void graph_t::create_framepass_nodes(graph_info_t &info) {
   for (std::unique_ptr<node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
-    auto *p = std::get_if<renderpass_node_t>(node.get());
-    if (p == nullptr) {
-      continue;
+    if (auto *p = std::get_if<renderpass_node_t>(node.get())) {
+      ENSURE(p->color_attachment != nullptr,
+             "found nullptr color attachment for node {}", p->name)
+      ENSURE(p->depth_attachment != nullptr,
+             "found nullptr depth attachment for node {}", p->name)
+
+      auto *color_attachment =
+          std::get_if<attachment_info_t>(&p->color_attachment->resource);
+      auto *depth_attachment =
+          std::get_if<attachment_info_t>(&p->depth_attachment->resource);
+
+      ENSURE(color_attachment != nullptr, "no color attachment for node {}",
+             p->name);
+      ENSURE(depth_attachment != nullptr, "no depth attachment for node {}",
+             p->name);
+
+      auto geometrypass_info =
+          geometrypass_info_t(info.device)
+              .set_extent(p->extent)
+              .set_loadop(vk::AttachmentLoadOp::eClear)
+              .set_color_attachments(
+                  get_attachment_views(p->color_attachment->name))
+              // TODO: propagate clearcolor to renderpass_info_t
+              .set_color_clearvalue(0.0f, 0.0f, 0.0f, 1.0f)
+              .set_color_format(color_attachment->format)
+              .set_depth_attachments(
+                  get_attachment_views(p->depth_attachment->name))
+              .set_depth_clearvalue(1.0f)
+              .set_depth_format(depth_attachment->format);
+
+      p->geometry_pass = geometrypass_t(geometrypass_info);
+
+      node_sync_info_t sync_info;
+      sync_info.device = info.device;
+      sync_info.commandpool = info.commandpool;
+      sync_info.children_count = get_children(*node).size();
+      p->sync = node_sync_t(sync_info);
+
+    } else if (auto *p = std::get_if<uploadpass_node_t>(node.get())) {
+      node_sync_info_t sync_info;
+      sync_info.device = info.device;
+      sync_info.commandpool = info.commandpool;
+      sync_info.children_count = get_children(*node).size();
+      p->sync = node_sync_t(sync_info);
+    } else {
+      ENSURE(false, "unreachable")
+      std::unreachable();
     }
-
-    ENSURE(p->color_attachment != nullptr,
-           "found nullptr color attachment for node {}", p->name)
-    ENSURE(p->depth_attachment != nullptr,
-           "found nullptr depth attachment for node {}", p->name)
-
-    auto *color_attachment =
-        std::get_if<attachment_info_t>(&p->color_attachment->resource);
-    auto *depth_attachment =
-        std::get_if<attachment_info_t>(&p->depth_attachment->resource);
-
-    ENSURE(color_attachment != nullptr, "no color attachment for node {}",
-           p->name);
-    ENSURE(depth_attachment != nullptr, "no depth attachment for node {}",
-           p->name);
-
-    auto geometrypass_info =
-        geometrypass_info_t(info.device)
-            .set_extent(p->extent)
-            .set_loadop(vk::AttachmentLoadOp::eClear)
-            .set_color_attachments(
-                get_attachment_views(p->color_attachment->name))
-            // TODO: propagate clearcolor to renderpass_info_t
-            .set_color_clearvalue(0.0f, 0.0f, 0.0f, 1.0f)
-            .set_color_format(color_attachment->format)
-            .set_depth_attachments(
-                get_attachment_views(p->depth_attachment->name))
-            .set_depth_clearvalue(1.0f)
-            .set_depth_format(depth_attachment->format);
-
-    p->geometry_pass = geometrypass_t(geometrypass_info);
   }
 }
 
-void uploadpass_node_t::record(std::span<uploadpass_command_t> commands,
-                               vk::CommandBuffer commandbuffer) {
+vk::CommandBuffer
+uploadpass_node_t::record(std::span<uploadpass_command_t> commands,
+                          std::uint32_t flightframe) {
+
+  vk::CommandBuffer commandbuffer = sync.commandbuffer(flightframe);
+  commandbuffer.begin(vk::CommandBufferBeginInfo{});
   for (uploadpass_command_t &command : commands) {
     if (auto *p = std::get_if<command::buffer_upload_t>(&command)) {
       alex::memory_buffer_write_info_t write_info;
@@ -508,11 +595,17 @@ void uploadpass_node_t::record(std::span<uploadpass_command_t> commands,
       std::unreachable();
     }
   }
+
+  commandbuffer.end();
+  return commandbuffer;
 }
 
-void renderpass_node_t::record(std::span<renderpass_command_t> commands,
-                               vk::CommandBuffer commandbuffer,
-                               std::uint32_t flightframe) {
+vk::CommandBuffer
+renderpass_node_t::record(std::span<renderpass_command_t> commands,
+                          std::uint32_t flightframe) {
+
+  vk::CommandBuffer commandbuffer = sync.commandbuffer(flightframe);
+  commandbuffer.begin(vk::CommandBufferBeginInfo{});
   const auto render_area =
       vk::Rect2D{}
           .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
@@ -572,37 +665,75 @@ void renderpass_node_t::record(std::span<renderpass_command_t> commands,
   }
 
   commandbuffer.endRenderPass();
+  commandbuffer.end();
+  return commandbuffer;
 }
 
-void graph_t::record(record_info_t &info) {
-
-  //TODO: we are still missing barriers inbetween passes
-
+void graph_t::evaluate(evaluate_info_t &info) {
   for (std::unique_ptr<node_t> &node : m_nodes) {
     ENSURE(node != nullptr, "found nullptr node")
+
+    vk::CommandBuffer recorded;
+    // vk::Semaphore sync_semaphore;
+
     if (auto *renderpass = std::get_if<renderpass_node_t>(node.get())) {
       auto found_commands = std::ranges::find_if(
           info.renderpass_commands, [&](renderpass_commands_t &commands) {
             return commands.renderpass_name == get_name(*node);
           });
 
-      if (found_commands != info.renderpass_commands.end()) {
-        renderpass->record(found_commands->commands, info.commandbuffer,
-                           info.flightframe);
+      if (found_commands == info.renderpass_commands.end()) {
+        continue;
       }
+
+      recorded = renderpass->record(found_commands->commands, info.flightframe);
+
     } else if (auto *uploadpass = std::get_if<uploadpass_node_t>(node.get())) {
       auto found_commands = std::ranges::find_if(
           info.uploadpass_commands, [&](uploadpass_commands_t &commands) {
             return commands.renderpass_name == get_name(*node);
           });
 
-      if (found_commands != info.uploadpass_commands.end()) {
-        uploadpass->record(found_commands->commands, info.commandbuffer);
+      if (found_commands == info.uploadpass_commands.end()) {
+        continue;
       }
+
+      recorded = uploadpass->record(found_commands->commands, info.flightframe);
     } else {
       UNREACHABLE("invalid node")
       std::unreachable();
     }
+
+    // TODO: This must be deduced by dependencies, they have to specify what
+    // type of dependency they are and they correspond to wait dst stage
+    // masks TopOfPipe is not a good solution!
+    std::array<vk::PipelineStageFlags, 1> const wait_dst_stage_masks{
+        vk::PipelineStageFlagBits::eTopOfPipe};
+
+    std::vector<vk::Semaphore> wait_semaphores;
+    for (node_t *dependency : get_dependencies(*node)) {
+      ENSURE(dependency != nullptr, "found nullptr dependency")
+      std::optional<vk::Semaphore> wait_semaphore =
+          get_wait_semaphore(*dependency, get_name(*node), info.flightframe);
+
+      ENSURE(wait_semaphore.has_value(),
+             "could not find wait semaphore for dependency for node {}",
+             get_name(*node))
+
+      wait_semaphores.push_back(wait_semaphore.value());
+    }
+
+    std::vector<vk::Semaphore> signal_semaphores =
+        get_sync(*node).wait_group(info.flightframe) |
+        std::ranges::to<std::vector>();
+
+    auto submit_info = vk::SubmitInfo{}
+                           .setWaitDstStageMask(wait_dst_stage_masks)
+                           .setCommandBuffers(recorded)
+                           .setSignalSemaphores(signal_semaphores)
+                           .setWaitSemaphores(wait_semaphores);
+
+    info.queue.submit(submit_info);
 
 #if 0    
     for (resource_t *input : node->inputs) {

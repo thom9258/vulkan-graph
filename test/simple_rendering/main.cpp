@@ -10,10 +10,10 @@
 
 #include "ecs.hpp"
 
-#include "draw_info_uniform.hpp"
-#include "cube_prefab.hpp"
 #include "button.hpp"
+#include "cube_prefab.hpp"
 #include "deltaclock.hpp"
+#include "draw_info_uniform.hpp"
 #include "glm.hpp"
 #include "orbit_camera.hpp"
 
@@ -201,8 +201,8 @@ int main() {
   vk::Extent3D render_extent(presentation_context.window_extent.width,
                              presentation_context.window_extent.height, 1);
 
-  auto graph_info =
-      alex::graph::graph_info_t(core.physical_device, core.device);
+  auto graph_info = alex::graph::graph_info_t(core.physical_device, core.device,
+                                              core.commandpool);
 
   graph_info.add_attachment("geom-color", alex::graph::attachment_type_t::color)
       .set_format(vk::Format::eR8G8B8A8Srgb)
@@ -424,17 +424,13 @@ int main() {
       geometry_pass_commands.push_back(draw);
     }
 
-    alex::graph::record_info_t graph_record_info;
-    graph_record_info.commandbuffer =
-        next_frame_info.presentation_commandbuffer;
-    graph_record_info.flightframe = next_frame_info.flightframe;
-
-    graph_record_info.uploadpass_commands.emplace_back("upload",
-                                                       upload_commands);
-
-    graph_record_info.renderpass_commands.emplace_back("geometry-pass",
-                                                       geometry_pass_commands);
-    graph.record(graph_record_info);
+    alex::graph::evaluate_info_t evaluate_info;
+    evaluate_info.flightframe = next_frame_info.flightframe;
+    evaluate_info.queue = core.queue;
+    evaluate_info.uploadpass_commands.emplace_back("upload", upload_commands);
+    evaluate_info.renderpass_commands.emplace_back("geometry-pass",
+                                                   geometry_pass_commands);
+    graph.evaluate(evaluate_info);
 
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};

@@ -78,7 +78,7 @@ struct uploadpass_info_t {
 };
 
 struct graph_info_t {
-  graph_info_t(vk::PhysicalDevice physical_device, vk::Device device);
+  graph_info_t(vk::PhysicalDevice physical_device, vk::Device device, vk::CommandPool commandpool);
   attachment_info_t &add_attachment(std::string_view name,
                                     attachment_type_t type);
   texture_info_t &add_texture(std::string_view name);
@@ -87,6 +87,7 @@ struct graph_info_t {
 
   vk::PhysicalDevice physical_device;
   vk::Device device;
+  vk::CommandPool commandpool;
   std::vector<texture_info_t> texture_infos;
   std::vector<attachment_info_t> attachment_infos;
   std::vector<renderpass_info_t> framepass_infos;

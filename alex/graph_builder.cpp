@@ -96,8 +96,8 @@ uploadpass_info_t::add_dependency(std::string_view dependency) {
 }
 
 graph_info_t::graph_info_t(vk::PhysicalDevice physical_device,
-                           vk::Device device)
-    : physical_device{physical_device}, device{device} {}
+                           vk::Device device, vk::CommandPool commandpool)
+    : physical_device{physical_device}, device{device}, commandpool{commandpool} {}
 
 renderpass_info_t &graph_info_t::add_framepass(std::string_view name) {
   framepass_infos.emplace_back(name);
