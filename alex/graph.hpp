@@ -12,25 +12,6 @@
 
 namespace alex::graph {
 
-struct node_sync_info_t {
-  vk::Device device;
-  vk::CommandPool commandpool;
-  std::size_t children_count{0};
-};
-
-struct node_sync_t {
-  node_sync_t() = default;
-  node_sync_t(node_sync_info_t info);
-
-  vk::CommandBuffer commandbuffer(std::uint32_t flightframe);
-  std::span<vk::Semaphore> wait_group(std::uint32_t flightframe);
-
-private:
-  flightframe_array_t<vk::CommandBuffer> commandbuffers;
-  using wait_group_t = std::vector<vk::Semaphore>;
-  flightframe_array_t<wait_group_t> wait_groups;
-};
-
 namespace command {
 
 struct draw_t {
@@ -123,17 +104,68 @@ struct resource_t {
   vk::ImageLayout layout{vk::ImageLayout::eUndefined};
 };
 
+struct presentation_node_t;
 struct renderpass_node_t;
 struct uploadpass_node_t;
-using node_t = std::variant<renderpass_node_t, uploadpass_node_t>;
+using node_t = std::variant<presentation_node_t, renderpass_node_t, uploadpass_node_t>;
 
+struct node_synchronization_info_t {
+  vk::Device device;
+  vk::CommandPool commandpool;
+  std::size_t children_count{0};
+};
+
+struct node_synchronization_t {
+  node_synchronization_t() = default;
+  node_synchronization_t(node_synchronization_info_t info);
+
+  struct lock_t {
+    lock_t(vk::Semaphore semaphore);
+    lock_t(const lock_t &) = delete;
+    lock_t &operator=(const lock_t &) = delete;
+    lock_t(lock_t &&) = default;
+    lock_t &operator=(lock_t &&) = default;
+
+    auto take() -> vk::Semaphore;
+    auto is_taken() -> bool;
+    auto reset() -> void;
+    auto semaphore() -> vk::Semaphore;
+
+  private:
+    vk::Semaphore _semaphore;
+    bool _taken{false};
+  };
+
+  auto reset_locks(std::uint32_t flightframe) -> void;
+  auto locks(std::uint32_t flightframe) -> std::span<lock_t>;
+  auto take_lock(std::uint32_t flightframe, std::size_t index) -> vk::Semaphore;
+  auto commandbuffer(std::uint32_t flightframe) -> vk::CommandBuffer;
+
+private:
+  flightframe_array_t<vk::CommandBuffer> commandbuffers;
+  using lock_group_t = std::vector<lock_t>;
+  flightframe_array_t<lock_group_t> lock_groups;
+};
+
+struct node_edges_t {
+  auto add_dependency(node_t *dependency) -> node_t *;
+  auto add_child(node_t *child) -> node_t *;
+  auto dependencies() -> std::span<node_t *>;
+  auto children() -> std::span<node_t *>;
+
+private:
+  std::vector<node_t *> _dependencies;
+  std::vector<node_t *> _children;
+};
+
+bool is_presentation_node(node_t &node);
 bool is_renderpass_node(node_t &node);
 bool is_uploadpass_node(node_t &node);
 
 std::string_view get_name(node_t &node);
 std::span<node_t *> get_dependencies(node_t &node);
 std::span<node_t *> get_children(node_t &node);
-node_sync_t& get_sync(node_t &node);
+node_synchronization_t &get_sync(node_t &node);
 
 std::optional<vk::Semaphore> get_wait_semaphore(node_t &dependency,
                                                 std::string_view name,
@@ -142,9 +174,18 @@ std::optional<vk::Semaphore> get_wait_semaphore(node_t &dependency,
 void add_dependency(node_t &node, node_t *dependency);
 void add_child(node_t &node, node_t *child);
 
-struct node_recording_t {
-  vk::CommandBuffer commandbuffer;
-  vk::Semaphore semaphore;
+struct presentation_node_t {
+  std::string name{""};
+  resource_t *attachment{nullptr};
+  std::vector<resource_t *> inputs;
+  std::vector<resource_t *> outputs;
+  vk::Extent3D extent;
+
+  node_edges_t node_edges;
+  node_synchronization_t sync;
+
+  [[nodiscard]]
+  vk::CommandBuffer record(std::uint32_t flightframe);
 };
 
 struct renderpass_node_t {
@@ -153,14 +194,13 @@ struct renderpass_node_t {
   resource_t *color_attachment{nullptr};
   std::vector<resource_t *> inputs;
   std::vector<resource_t *> outputs;
-  std::vector<node_t *> dependencies;
-  std::vector<node_t *> children;
   vk::Extent3D extent;
   geometrypass_t geometry_pass;
-  node_sync_t sync;
+
+  node_edges_t node_edges;
+  node_synchronization_t sync;
 
   [[nodiscard]]
-
   vk::CommandBuffer record(std::span<renderpass_command_t> commands,
                            std::uint32_t flightframe);
 };
@@ -279,12 +319,10 @@ manually define the sequence?
 
 struct uploadpass_node_t {
   std::string name{""};
-  std::vector<node_t *> dependencies;
-  std::vector<node_t *> children;
-  node_sync_t sync;
+  node_edges_t node_edges;
+  node_synchronization_t sync;
 
   [[nodiscard]]
-
   vk::CommandBuffer record(std::span<uploadpass_command_t> commands,
                            std::uint32_t flightframe);
 };

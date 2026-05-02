@@ -160,16 +160,35 @@ int main() {
   cube_prefab_info.g = 0.0f;
   cube_prefab_info.b = 0.0f;
   cube_prefab_info.transform =
-      glm::translate(glm::mat4(1.0f), glm::vec3(1.5f, 0.0f, 0.0f));
+      glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f)) *
+      glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 
-  ecs::entity_id_t a = add_cube_prefab(cube_prefab_info);
+  ecs::entity_id_t x_dir = add_cube_prefab(cube_prefab_info);
+
+  cube_prefab_info.r = 0.0f;
+  cube_prefab_info.g = 1.0f;
+  cube_prefab_info.b = 0.0f;
+  cube_prefab_info.transform =
+      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)) *
+      glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+
+  ecs::entity_id_t y_dir = add_cube_prefab(cube_prefab_info);
 
   cube_prefab_info.r = 0.0f;
   cube_prefab_info.g = 0.0f;
   cube_prefab_info.b = 1.0f;
   cube_prefab_info.transform =
-      glm::translate(glm::mat4(1.0f), glm::vec3(-1.5f, 0.0f, 0.0f));
-  ecs::entity_id_t b = add_cube_prefab(cube_prefab_info);
+      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 1.0f)) *
+      glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+
+  ecs::entity_id_t z_dir = add_cube_prefab(cube_prefab_info);
+
+  cube_prefab_info.r = 1.0f;
+  cube_prefab_info.g = 1.0f;
+  cube_prefab_info.b = 1.0f;
+  cube_prefab_info.transform = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+
+  ecs::entity_id_t center = add_cube_prefab(cube_prefab_info);
 
   init_commandbuffer.end();
   auto fence_create_info = vk::FenceCreateInfo{};
@@ -224,6 +243,12 @@ int main() {
 
   graph_info.add_uploadpass("upload");
 
+  graph_info.set_presentation("present")
+      .add_dependency("geometry-pass")
+      .set_use_vsync(false)
+      .set_blit_filter(vk::Filter::eLinear)
+      .set_surface(surface);
+
   alex::graph::graph_t graph(graph_info);
   std::println("======================");
   graph.print_execution_order(std::cout);
@@ -232,6 +257,8 @@ int main() {
   std::println("======================");
 
   DeltaClock deltaclock;
+
+  // TODO: orbit camera is broken, it is turned upside down for some reason
   OrbitCamera camera(glm::vec3(0.0f), 5.0f);
   const float aspect = static_cast<float>(width) / static_cast<float>(height);
   const float near_plane = 1.0f, far_plane = 20.0f;

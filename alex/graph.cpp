@@ -18,15 +18,33 @@
 
 namespace alex::graph {
 
-node_sync_t::node_sync_t(node_sync_info_t info) {
+node_synchronization_t::lock_t::lock_t(vk::Semaphore semaphore)
+    : _semaphore{semaphore} {}
+
+auto node_synchronization_t::lock_t::take() -> vk::Semaphore {
+  _taken = true;
+  return semaphore();
+}
+
+auto node_synchronization_t::lock_t::semaphore() -> vk::Semaphore {
+  return _semaphore;
+}
+
+auto node_synchronization_t::lock_t::reset() -> void { _taken = false; }
+
+auto node_synchronization_t::lock_t::is_taken() -> bool { return _taken; }
+
+node_synchronization_t::node_synchronization_t(
+    node_synchronization_info_t info) {
   auto semaphore_create_info = vk::SemaphoreCreateInfo{};
 
-  for (std::vector<vk::Semaphore> &wait_group : wait_groups) {
+  for (std::vector<lock_t> &lock_group : lock_groups) {
     for (std::size_t i = 0; i < info.children_count; i++) {
-      wait_group.emplace_back();
-      vk::Result result = info.device.createSemaphore(
-          &semaphore_create_info, nullptr, &wait_group.back());
+      vk::Semaphore semaphore;
+      vk::Result result = info.device.createSemaphore(&semaphore_create_info,
+                                                      nullptr, &semaphore);
       ENSURE(result == vk::Result::eSuccess, "could not allocate semaphore");
+      lock_group.emplace_back(std::move(semaphore));
     }
   }
 
@@ -41,13 +59,47 @@ node_sync_t::node_sync_t(node_sync_info_t info) {
   ENSURE(result == vk::Result::eSuccess, "could not allocate commandbuffers");
 }
 
-vk::CommandBuffer node_sync_t::commandbuffer(std::uint32_t flightframe) {
+auto node_synchronization_t::commandbuffer(std::uint32_t flightframe)
+    -> vk::CommandBuffer {
   return commandbuffers[flightframe];
 }
 
-std::span<vk::Semaphore> node_sync_t::wait_group(std::uint32_t flightframe) {
-  return wait_groups[flightframe];
+auto node_synchronization_t::locks(std::uint32_t flightframe)
+    -> std::span<lock_t> {
+  return lock_groups[flightframe];
 }
+
+auto node_synchronization_t::reset_locks(std::uint32_t flightframe) -> void {
+  for (lock_t &lock : locks(flightframe)) {
+    lock.reset();
+  }
+}
+
+auto node_synchronization_t::take_lock(std::uint32_t flightframe,
+                                       std::size_t index) -> vk::Semaphore {
+
+  lock_t &lock = locks(flightframe)[index];
+  ENSURE(lock.is_taken() == false,
+         "lock was already taken for flightframe {} index {}", flightframe,
+         index)
+  return lock.take();
+}
+
+auto node_edges_t::add_dependency(node_t *dependency) -> node_t * {
+  _dependencies.push_back(dependency);
+  return _children.back();
+}
+
+auto node_edges_t::add_child(node_t *child) -> node_t * {
+  _children.push_back(child);
+  return _children.back();
+}
+
+auto node_edges_t::dependencies() -> std::span<node_t *> {
+  return _dependencies;
+}
+
+auto node_edges_t::children() -> std::span<node_t *> { return _children; }
 
 resource_t::resource_t(std::string_view name, texture_info_t texture)
     : name{name}, resource{texture} {}
@@ -55,6 +107,9 @@ resource_t::resource_t(std::string_view name, texture_info_t texture)
 resource_t::resource_t(std::string_view name, attachment_info_t attachment)
     : name{name}, resource{attachment} {}
 
+bool is_presentation_node(node_t &node) {
+  return std::holds_alternative<presentation_node_t>(node);
+}
 bool is_renderpass_node(node_t &node) {
   return std::holds_alternative<renderpass_node_t>(node);
 }
@@ -63,67 +118,37 @@ bool is_uploadpass_node(node_t &node) {
 }
 
 std::string_view get_name(node_t &node) {
-  if (auto *p = std::get_if<renderpass_node_t>(&node)) {
-    return p->name;
-  } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
-    return p->name;
-  }
-
-  UNREACHABLE("invalid node type")
-  std::unreachable();
+  auto const _get_name = [](auto &n) -> std::string_view { return n.name; };
+  return std::visit(_get_name, node);
 }
 
 void add_dependency(node_t &node, node_t *dependency) {
   ENSURE(dependency != nullptr, "got nullptr dependency")
-  if (auto *p = std::get_if<renderpass_node_t>(&node)) {
-    p->dependencies.push_back(dependency);
-    return;
-  } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
-    p->dependencies.push_back(dependency);
-    return;
-  }
-
-  UNREACHABLE("invalid node type")
-  std::unreachable();
+  auto const _add_dependency = [&](auto &n) {
+    n.node_edges.add_dependency(dependency);
+  };
+  std::visit(_add_dependency, node);
 }
 
 void add_child(node_t &node, node_t *child) {
   ENSURE(child != nullptr, "got nullptr dependency")
-  if (auto *p = std::get_if<renderpass_node_t>(&node)) {
-    p->children.push_back(child);
-    return;
-  } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
-    p->children.push_back(child);
-    return;
-  }
-
-  UNREACHABLE("invalid node type")
-  std::unreachable();
+  auto const _add_child = [&](auto &n) { n.node_edges.add_child(child); };
+  std::visit(_add_child, node);
 }
 
 std::span<node_t *> get_dependencies(node_t &node) {
-  if (auto *p = std::get_if<renderpass_node_t>(&node)) {
-    return p->dependencies;
-  } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
-    return p->dependencies;
-  }
-
-  UNREACHABLE("invalid node type")
-  std::unreachable();
+  auto const _get_dependencies = [&](auto &n) {
+    return n.node_edges.dependencies();
+  };
+  return std::visit(_get_dependencies, node);
 }
 
 std::span<node_t *> get_children(node_t &node) {
-  if (auto *p = std::get_if<renderpass_node_t>(&node)) {
-    return p->children;
-  } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
-    return p->children;
-  }
-
-  UNREACHABLE("invalid node type")
-  std::unreachable();
+  auto const _get_children = [&](auto &n) { return n.node_edges.children(); };
+  return std::visit(_get_children, node);
 }
 
-node_sync_t &get_sync(node_t &node) {
+node_synchronization_t &get_sync(node_t &node) {
   if (auto *p = std::get_if<renderpass_node_t>(&node)) {
     return p->sync;
   } else if (auto *p = std::get_if<uploadpass_node_t>(&node)) {
@@ -137,14 +162,14 @@ node_sync_t &get_sync(node_t &node) {
 std::optional<vk::Semaphore> get_wait_semaphore(node_t &dependency,
                                                 std::string_view name,
                                                 std::uint32_t flightframe) {
-  std::size_t wait_semaphore_index{0};
+  std::size_t node_index_for_child{0};
   for (node_t *child : get_children(dependency)) {
     ENSURE(child != nullptr, "found nullptr child for node {}", name)
     if (get_name(*child) == name) {
-      return get_sync(dependency).wait_group(flightframe)[wait_semaphore_index];
+      return get_sync(dependency).take_lock(flightframe, node_index_for_child);
     }
 
-    wait_semaphore_index++;
+    node_index_for_child++;
   }
 
   return std::nullopt;
@@ -556,18 +581,18 @@ void graph_t::create_framepass_nodes(graph_info_t &info) {
 
       p->geometry_pass = geometrypass_t(geometrypass_info);
 
-      node_sync_info_t sync_info;
+      node_synchronization_info_t sync_info;
       sync_info.device = info.device;
       sync_info.commandpool = info.commandpool;
       sync_info.children_count = get_children(*node).size();
-      p->sync = node_sync_t(sync_info);
+      p->sync = node_synchronization_t(sync_info);
 
     } else if (auto *p = std::get_if<uploadpass_node_t>(node.get())) {
-      node_sync_info_t sync_info;
+      node_synchronization_info_t sync_info;
       sync_info.device = info.device;
       sync_info.commandpool = info.commandpool;
       sync_info.children_count = get_children(*node).size();
-      p->sync = node_sync_t(sync_info);
+      p->sync = node_synchronization_t(sync_info);
     } else {
       ENSURE(false, "unreachable")
       std::unreachable();
@@ -704,9 +729,13 @@ void graph_t::evaluate(evaluate_info_t &info) {
       std::unreachable();
     }
 
+    get_sync(*node).reset_locks(info.flightframe);
+
     // TODO: This must be deduced by dependencies, they have to specify what
     // type of dependency they are and they correspond to wait dst stage
     // masks TopOfPipe is not a good solution!
+    // So basically each dependency has a mask for itself, and it will then wait
+	// for all masks before computing
     std::array<vk::PipelineStageFlags, 1> const wait_dst_stage_masks{
         vk::PipelineStageFlagBits::eTopOfPipe};
 
@@ -723,9 +752,15 @@ void graph_t::evaluate(evaluate_info_t &info) {
       wait_semaphores.push_back(wait_semaphore.value());
     }
 
-    std::vector<vk::Semaphore> signal_semaphores =
-        get_sync(*node).wait_group(info.flightframe) |
-        std::ranges::to<std::vector>();
+    std::vector<vk::Semaphore> signal_semaphores;
+    for (node_synchronization_t::lock_t &lock :
+         get_sync(*node).locks(info.flightframe)) {
+      signal_semaphores.push_back(lock.semaphore());
+    }
+
+    //   std::vector<vk::Semaphore> signal_semaphores =
+    //       get_sync(*node).wait_group(info.flightframe) |
+    //       std::ranges::to<std::vector>();
 
     auto submit_info = vk::SubmitInfo{}
                            .setWaitDstStageMask(wait_dst_stage_masks)

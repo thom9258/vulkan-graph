@@ -27,4 +27,5 @@ using manager_t = sukoshi::ecs::manager_t<
 using entity_id_t = manager_t::entity_id_t;
 
 using entity_pointer_t = manager_t::entity_pointer_t;
-}
+
+} // namespace ecs

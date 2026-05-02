@@ -42,6 +42,23 @@ struct attachment_info_t {
   vk::ImageAspectFlags aspect_flags;
 };
 
+struct presentation_info_t {
+  presentation_info_t(std::string_view name);
+  presentation_info_t &add_dependency(std::string_view dependency);
+  presentation_info_t &set_surface(vk::SurfaceKHR surface);
+  presentation_info_t &set_extent(vk::Extent2D extent);
+  presentation_info_t &set_use_vsync(bool enable);
+  presentation_info_t &set_blit_filter(vk::Filter filter);
+
+  std::string name{""};
+  std::vector<std::string> dependencies;
+
+  vk::SurfaceKHR surface;
+  vk::Extent2D window_extent;
+  bool use_vsync{true};
+  vk::Filter blit_filter{vk::Filter::eLinear};
+};
+
 struct renderpass_info_t {
   renderpass_info_t(std::string_view name);
   renderpass_info_t &set_extent(vk::Extent3D extent);
@@ -82,6 +99,7 @@ struct graph_info_t {
   attachment_info_t &add_attachment(std::string_view name,
                                     attachment_type_t type);
   texture_info_t &add_texture(std::string_view name);
+  presentation_info_t &set_presentation(std::string_view name);
   renderpass_info_t &add_framepass(std::string_view name);
   uploadpass_info_t &add_uploadpass(std::string_view name);
 
@@ -90,6 +108,7 @@ struct graph_info_t {
   vk::CommandPool commandpool;
   std::vector<texture_info_t> texture_infos;
   std::vector<attachment_info_t> attachment_infos;
+  presentation_info_t presentation_info;
   std::vector<renderpass_info_t> framepass_infos;
   std::vector<uploadpass_info_t> uploadpass_infos;
 };
