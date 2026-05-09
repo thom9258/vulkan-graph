@@ -1,12 +1,10 @@
 #pragma once
 
 #include "vulkan_include.hpp"
-#include "arena.hpp"
+
+#include <span>
 
 namespace alex {
-
-static constexpr std::uint32_t frames_in_flight = 2;
-template <typename T> using flightframe_array_t = std::array<T, frames_in_flight>;
 
 struct context_info_t {
   std::string_view name{""};
@@ -14,25 +12,43 @@ struct context_info_t {
   bool enable_validation{true};
 };
 
-struct context_t {
-  vk::Instance instance;
-  void init(context_info_t &info, memory::arena &allocator);
+class context_t {
+public:
+  explicit context_t(context_info_t &info);
+  auto instance() -> vk::Instance;
+
+private:
+  vk::UniqueInstance _instance;
 };
 
 struct core_info_t {
-  context_t *context{nullptr};
+  vk::Instance instance;
   vk::Extent2D render_extent;
   vk::SurfaceKHR surface;
 };
 
-struct core_t {
-  vk::PhysicalDevice physical_device;
-  vk::Device device;
-  vk::Queue queue;
-  std::uint32_t queuefamily_index;
-  vk::CommandPool commandpool;
+class core_t {
+public:
+  explicit core_t(core_info_t &info);
+  auto physical_device() -> vk::PhysicalDevice;
+  auto device() -> vk::Device;
+  auto queue() -> vk::Queue;
+  auto queuefamily_index() -> std::uint32_t;
+  auto commandpool() -> vk::CommandPool;
 
-  void init(core_info_t &info, memory::arena &allocator);
+  auto create_descriptorpool(vk::DescriptorPoolCreateInfo info)
+      -> vk::UniqueDescriptorPool;
+
+  auto create_commandbuffer() -> vk::UniqueCommandBuffer;
+  auto create_fence() -> vk::UniqueFence;
+  auto create_fence_signaled() -> vk::UniqueFence;
+
+private:
+  vk::PhysicalDevice _physical_device;
+  vk::UniqueDevice _device;
+  vk::Queue _queue;
+  std::uint32_t _queuefamily_index;
+  vk::UniqueCommandPool _commandpool;
 };
 
-}
+} // namespace alex

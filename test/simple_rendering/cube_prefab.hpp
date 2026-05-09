@@ -35,8 +35,8 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
   mesh->vertices_length = cube_vertices.size();
 
   alex::direct_memory_buffer_info_t direct_cube_buffer_info;
-  direct_cube_buffer_info.physical_device = info.core->physical_device;
-  direct_cube_buffer_info.device = info.core->device;
+  direct_cube_buffer_info.physical_device = info.core->physical_device();
+  direct_cube_buffer_info.device = info.core->device();
   direct_cube_buffer_info.buffer_type = alex::memory_buffer_type_t::basic;
   direct_cube_buffer_info.memory_size =
       sizeof(cube_vertices[0]) * cube_vertices.size();
@@ -48,14 +48,14 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
   LOG_INFO("Created direct vertex buffer");
 
   alex::memory_buffer_info_t cube_buffer_info;
-  cube_buffer_info.physical_device = info.core->physical_device;
-  cube_buffer_info.device = info.core->device;
+  cube_buffer_info.physical_device = info.core->physical_device();
+  cube_buffer_info.device = info.core->device();
   cube_buffer_info.buffer_type = alex::memory_buffer_type_t::vertices;
   cube_buffer_info.memory_size = direct_cube_buffer_info.memory_size;
 
   alex::memory_buffer_write_info_t cube_buffer_write_info;
-  cube_buffer_write_info.physical_device = info.core->physical_device;
-  cube_buffer_write_info.device = info.core->device;
+  cube_buffer_write_info.physical_device = info.core->physical_device();
+  cube_buffer_write_info.device = info.core->device();
   cube_buffer_write_info.memory = &direct_cube_buffer;
   cube_buffer_write_info.write_size = direct_cube_buffer.memory_size;
   cube_buffer_write_info.commandbuffer = info.commandbuffer;
@@ -67,8 +67,8 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
   draw_info_t cube_draw_info;
 
   alex::direct_memory_buffer_info_t direct_uniform_info;
-  direct_uniform_info.physical_device = info.core->physical_device;
-  direct_uniform_info.device = info.core->device;
+  direct_uniform_info.physical_device = info.core->physical_device();
+  direct_uniform_info.device = info.core->device();
   direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
   direct_uniform_info.memory_size = sizeof(draw_info_t);
 
@@ -79,15 +79,15 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
 
   for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
     alex::memory_buffer_info_t uniform_info;
-    uniform_info.physical_device = info.core->physical_device;
-    uniform_info.device = info.core->device;
+    uniform_info.physical_device = info.core->physical_device();
+    uniform_info.device = info.core->device();
     uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
     uniform_info.memory_size = direct_uniform_info.memory_size;
     uniform.init(uniform_info);
 
     alex::memory_buffer_write_info_t write_info;
-    write_info.physical_device = info.core->physical_device;
-    write_info.device = info.core->device;
+    write_info.physical_device = info.core->physical_device();
+    write_info.device = info.core->device();
     write_info.memory = &mesh->direct_uniforms[i];
     write_info.write_size = uniform.memory_size;
     write_info.commandbuffer = info.commandbuffer;
@@ -102,11 +102,11 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
       vk::DescriptorPoolCreateInfo{}.setPoolSizes(pool_sizes).setMaxSets(4);
 
   vk::DescriptorPool descriptor_pool =
-      info.core->device.createDescriptorPool(pool_create_info);
+      info.core->device().createDescriptorPool(pool_create_info);
 
   alex::uniform_descriptorsets_info_t cube_descriptorsets_info;
-  cube_descriptorsets_info.physical_device = info.core->physical_device;
-  cube_descriptorsets_info.device = info.core->device;
+  cube_descriptorsets_info.physical_device = info.core->physical_device();
+  cube_descriptorsets_info.device = info.core->device();
   cube_descriptorsets_info.set_count = 2;
   cube_descriptorsets_info.layout = info.set_layout;
   cube_descriptorsets_info.pool = descriptor_pool;
@@ -114,7 +114,7 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
   mesh->descriptorsets.init(cube_descriptorsets_info);
   for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
     alex::uniform_descriptorsets_update_info_t update_info;
-    update_info.device = info.core->device;
+    update_info.device = info.core->device();
     update_info.set_index = i;
     update_info.buffer = &uniform;
     update_info.buffer_offset = 0;

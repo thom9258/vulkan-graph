@@ -6,21 +6,20 @@
 #include <alex/pipeline_builder.hpp>
 #include <alex/presentation_context.hpp>
 #include <alex/texture_storage.hpp>
-#include <alex/uniform_descriptorsets.hpp>
 
 #include "ecs.hpp"
 
+#include "../utility/deltaclock.hpp"
 #include "button.hpp"
 #include "cube_prefab.hpp"
-#include "deltaclock.hpp"
 #include "draw_info_uniform.hpp"
 #include "glm.hpp"
-#include "orbit_camera.hpp"
+// #include "orbit_camera.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
-
 #include <SDL_video.h>
+
 #include <chrono>
 #include <iostream>
 #include <ranges>
@@ -83,39 +82,83 @@ int main() {
 
   uint32_t window_extensions_count{0};
   SDL_Vulkan_GetInstanceExtensions(window, &window_extensions_count, nullptr);
-  const uint32_t extensions_count = window_extensions_count;
-  auto extensions = init_arena.allocate<const char *>(extensions_count);
-  ENSURE_NOT(extensions.empty(), "Out of memory");
 
+  std::vector<const char*> window_extensions(window_extensions_count);
   SDL_Vulkan_GetInstanceExtensions(window, &window_extensions_count,
-                                   extensions.data());
+                                   window_extensions.data());
 
   alex::context_info_t context_info;
-  context_info.instance_extensions = extensions;
+  context_info.instance_extensions = window_extensions;
   context_info.enable_validation = true;
 
-  alex::context_t context;
-  context.init(context_info, init_arena);
+  alex::context_t context(context_info);
 
   VkSurfaceKHR surface;
-  SDL_Vulkan_CreateSurface(window, context.instance, &surface);
+  SDL_Vulkan_CreateSurface(window, context.instance(), &surface);
 
   alex::core_info_t core_info;
   core_info.surface = surface;
-  core_info.context = &context;
+  core_info.instance = context.instance();
   core_info.render_extent.width = window_info.width;
   core_info.render_extent.height = window_info.height;
 
-  alex::core_t core;
-  core.init(core_info, init_arena);
+  alex::core_t core(core_info);
 
-  int width{0};
-  int height{0};
-  SDL_GetWindowSize(window, &width, &height);
+  std::vector<vk::DescriptorPoolSize> pool_sizes{
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eSampler)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eCombinedImageSampler)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eSampledImage)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eStorageImage)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eStorageImage)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eUniformTexelBuffer)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eStorageTexelBuffer)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eUniformBuffer)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eStorageBuffer)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eUniformBufferDynamic)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eStorageBufferDynamic)
+          .setDescriptorCount(1000),
+      vk::DescriptorPoolSize{}
+          .setType(vk::DescriptorType::eInputAttachment)
+          .setDescriptorCount(1000),
+  };
+
+  auto const pool_info =
+      vk::DescriptorPoolCreateInfo{}
+          .setPoolSizes(pool_sizes)
+          .setMaxSets(1000)
+          .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+
+  vk::UniqueDescriptorPool descriptor_pool =
+      core.create_descriptorpool(pool_info);
 
   /* ****************************************
    * Create DescriptorSet Layout for geometry pipeline
    */
+  int width{0};
+  int height{0};
+  SDL_GetWindowSize(window, &width, &height);
+
   std::array<vk::DescriptorSetLayoutBinding,
              1> constexpr frame_uniform_bindings{
       vk::DescriptorSetLayoutBinding{}
@@ -130,31 +173,19 @@ int main() {
           .setBindings(frame_uniform_bindings);
 
   vk::DescriptorSetLayout geometry_pipeline_info_setlayout =
-      core.device.createDescriptorSetLayout(uniform_setinfo, nullptr);
+      core.device().createDescriptorSetLayout(uniform_setinfo, nullptr);
 
   /* ****************************************
-   * Initialization Commandbuffer Setup
-   *
-   * TODO: everything done by this commandbuffer should be able to be put
-   *       into a work graph, where we do not specify the commandbuffer.
-   *       This is just a preliminary test implementation.
+   * Setup our meshes
    */
-  auto init_commandbuffer_alloc_info =
-      vk::CommandBufferAllocateInfo{}
-          .setCommandPool(core.commandpool)
-          .setLevel(vk::CommandBufferLevel::ePrimary)
-          .setCommandBufferCount(1);
+  vk::UniqueCommandBuffer init_commandbuffer = core.create_commandbuffer();
 
-  vk::CommandBuffer init_commandbuffer =
-      core.device.allocateCommandBuffers(init_commandbuffer_alloc_info).front();
-
-  init_commandbuffer.begin(vk::CommandBufferBeginInfo{});
-
+  init_commandbuffer->begin(vk::CommandBufferBeginInfo{});
   cube_prefab_info_t cube_prefab_info;
   cube_prefab_info.manager = &manager;
   cube_prefab_info.core = &core;
   cube_prefab_info.set_layout = geometry_pipeline_info_setlayout;
-  cube_prefab_info.commandbuffer = init_commandbuffer;
+  cube_prefab_info.commandbuffer = init_commandbuffer.get();
   cube_prefab_info.arena = &init_arena;
   cube_prefab_info.r = 1.0f;
   cube_prefab_info.g = 0.0f;
@@ -190,38 +221,40 @@ int main() {
 
   ecs::entity_id_t center = add_cube_prefab(cube_prefab_info);
 
-  init_commandbuffer.end();
-  auto fence_create_info = vk::FenceCreateInfo{};
-  vk::Fence init_fence = core.device.createFence(fence_create_info);
-  auto commandbuffer_submit_info =
-      vk::SubmitInfo{}.setCommandBuffers(init_commandbuffer);
+  init_commandbuffer->end();
+  vk::UniqueFence init_fence = core.create_fence();
 
-  core.queue.submit(commandbuffer_submit_info, init_fence);
+  auto commandbuffer_submit_info =
+      vk::SubmitInfo{}.setCommandBuffers(init_commandbuffer.get());
+
+  core.queue().submit(commandbuffer_submit_info, init_fence.get());
+
   const auto max_wait = std::numeric_limits<unsigned int>::max();
   vk::Result init_wait_result =
-      core.device.waitForFences(init_fence, true, max_wait);
+      core.device().waitForFences(init_fence.get(), true, max_wait);
   ENSURE(init_wait_result == vk::Result::eSuccess, "could not wait for queue")
 
   /* ****************************************
    * Setup presentation context
    */
-  alex::presentation_context_info_t presentation_context_info;
-  presentation_context_info.core = &core;
-  presentation_context_info.surface = surface;
-  presentation_context_info.enable_vsync = false;
-  presentation_context_info.window_extent.width = width;
-  presentation_context_info.window_extent.height = height;
-  alex::presentation_context_t presentation_context;
-  presentation_context.init(presentation_context_info, init_arena);
+  alex::presenter_info_t presenter_info;
+  presenter_info.physical_device = core.physical_device();
+  presenter_info.device = core.device();
+  presenter_info.commandpool = core.commandpool();
+  presenter_info.surface = surface;
+  presenter_info.enable_vsync = false;
+  presenter_info.window_extent.width = width;
+  presenter_info.window_extent.height = height;
+  alex::presenter_t presenter(presenter_info);
 
   /* ****************************************
    * Setup render graph
    */
-  vk::Extent3D render_extent(presentation_context.window_extent.width,
-                             presentation_context.window_extent.height, 1);
+  vk::Extent3D render_extent(presenter.window_extent.width,
+                             presenter.window_extent.height, 1);
 
-  auto graph_info = alex::graph::graph_info_t(core.physical_device, core.device,
-                                              core.commandpool);
+  auto graph_info = alex::graph::graph_info_t(
+      core.physical_device(), core.device(), core.commandpool());
 
   graph_info.add_attachment("geom-color", alex::graph::attachment_type_t::color)
       .set_format(vk::Format::eR8G8B8A8Srgb)
@@ -243,12 +276,6 @@ int main() {
 
   graph_info.add_uploadpass("upload");
 
-  graph_info.set_presentation("present")
-      .add_dependency("geometry-pass")
-      .set_use_vsync(false)
-      .set_blit_filter(vk::Filter::eLinear)
-      .set_surface(surface);
-
   alex::graph::graph_t graph(graph_info);
   std::println("======================");
   graph.print_execution_order(std::cout);
@@ -258,8 +285,11 @@ int main() {
 
   DeltaClock deltaclock;
 
-  // TODO: orbit camera is broken, it is turned upside down for some reason
-  OrbitCamera camera(glm::vec3(0.0f), 5.0f);
+  glm::vec3 const up(0.0, 1.0, 0.0);
+  glm::vec3 const position(5.0, 2.0, 0.0);
+  glm::vec3 const target(0.0, 0.0, 0.0);
+  glm::mat4 const view = glm::lookAt(position, target, up);
+
   const float aspect = static_cast<float>(width) / static_cast<float>(height);
   const float near_plane = 1.0f, far_plane = 20.0f;
   glm::mat4 const projection =
@@ -275,10 +305,11 @@ int main() {
 
   alex::graph::renderpass_node_t *geometry_renderpass =
       std::get_if<alex::graph::renderpass_node_t>(geometry_renderpass_node);
+
   ENSURE(geometry_renderpass != nullptr, "could not find geometry-pass")
 
   auto geometry_pipeline_info =
-      alex::graph::pipeline_info_t(core.device)
+      alex::graph::pipeline_info_t(core.device())
           .set_extent(render_extent)
           .set_renderpass(geometry_renderpass->geometry_pass.renderpass)
           .set_vertex_program_path("./geometry.vert.spv")
@@ -361,20 +392,20 @@ int main() {
     }
 
     if (button_w.is_pressed()) {
-      camera.add_rotation(movespeed, 0.0f);
+      //camera.add_rotation(movespeed, 0.0f);
     }
     if (button_a.is_pressed()) {
-      camera.add_rotation(0.0f, movespeed);
+      //camera.add_rotation(0.0f, movespeed);
     }
     if (button_s.is_pressed()) {
-      camera.add_rotation(-movespeed, 0.0f);
+      //camera.add_rotation(-movespeed, 0.0f);
     }
     if (button_d.is_pressed()) {
-      camera.add_rotation(0.0f, -movespeed);
+      //camera.add_rotation(0.0f, -movespeed);
     }
 
     alex::next_frame_info_t next_frame_info =
-        presentation_context.wait_for_next_frame(core.device);
+        presenter.wait_for_next_frame(core.device());
 
     // TODO: presentation context should not own a commandbuffer, you should own
     // it yourself
@@ -416,15 +447,15 @@ int main() {
       auto *transform = manager.get_component<component_transform_t>(entity);
 
       draw_info_t draw_info;
-      draw_info.view = camera.view();
+      draw_info.view = view;
       draw_info.projection = projection;
       draw_info.model = transform->mat;
       std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe].memory_ptr,
                   &draw_info, sizeof(draw_info));
 
       alex::graph::command::buffer_upload_t upload{
-          .physical_device = core.physical_device,
-          .device = core.device,
+          .physical_device = core.physical_device(),
+          .device = core.device(),
           .direct_buffer = &mesh->direct_uniforms[next_frame_info.flightframe],
           .buffer = &mesh->uniforms[next_frame_info.flightframe]};
 
@@ -453,7 +484,7 @@ int main() {
 
     alex::graph::evaluate_info_t evaluate_info;
     evaluate_info.flightframe = next_frame_info.flightframe;
-    evaluate_info.queue = core.queue;
+    evaluate_info.queue = core.queue();
     evaluate_info.uploadpass_commands.emplace_back("upload", upload_commands);
     evaluate_info.renderpass_commands.emplace_back("geometry-pass",
                                                    geometry_pass_commands);
@@ -465,8 +496,8 @@ int main() {
 
     presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.destination_offset_end = vk::Offset3D{
-        static_cast<std::int32_t>(presentation_context.window_extent.width),
-        static_cast<std::int32_t>(presentation_context.window_extent.height),
+        static_cast<std::int32_t>(presenter.window_extent.width),
+        static_cast<std::int32_t>(presenter.window_extent.height),
         1};
 
     presentation_info.blit_filter = vk::Filter::eLinear;
@@ -474,11 +505,11 @@ int main() {
         graph.m_texture_storage.find("geom-color");
     presentation_info.image = final_images[next_frame_info.flightframe].image;
     presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
-    presentation_info.queue = core.queue;
+    presentation_info.queue = core.queue();
     presentation_info.commandbuffer =
         next_frame_info.presentation_commandbuffer;
 
-    presentation_context.present(presentation_info);
+    presenter.present(presentation_info);
     deltaclock.tick();
   }
 
@@ -486,6 +517,7 @@ int main() {
   std::println("  Used {} bytes", init_arena.used_memory());
   std::println("  Available {} bytes", init_arena.available_memory());
   std::println("  Total {} bytes", init_arena.total_memory());
-  core.device.waitIdle();
+  core.device().waitIdle();
+
   return 0;
 }

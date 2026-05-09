@@ -107,9 +107,6 @@ resource_t::resource_t(std::string_view name, texture_info_t texture)
 resource_t::resource_t(std::string_view name, attachment_info_t attachment)
     : name{name}, resource{attachment} {}
 
-bool is_presentation_node(node_t &node) {
-  return std::holds_alternative<presentation_node_t>(node);
-}
 bool is_renderpass_node(node_t &node) {
   return std::holds_alternative<renderpass_node_t>(node);
 }
@@ -236,6 +233,7 @@ graph_t::get_attachment_views(std::string_view name) {
 }
 
 void graph_t::init_nodes(graph_info_t &info) {
+
   for (renderpass_info_t &framepass_info : info.framepass_infos) {
     m_nodes.push_back(std::make_unique<node_t>(renderpass_node_t{}));
     auto *renderpass = std::get_if<renderpass_node_t>(m_nodes.back().get());
@@ -318,6 +316,17 @@ void graph_t::connect_node_dependencies(graph_info_t &info) {
       add_dependency(*node, dependency);
     }
   }
+
+  for (uploadpass_info_t &uploadpass_info : info.uploadpass_infos) {
+    node_t *node = find_node(uploadpass_info.name);
+    ENSURE(node != nullptr, "nullptr node")
+    for (std::string &dependency_name : uploadpass_info.dependencies) {
+      node_t *dependency = find_node(dependency_name);
+      ENSURE(dependency != nullptr, "nullptr dependency for node {}",
+             get_name(*node))
+      add_dependency(*node, dependency);
+    }
+  }
 }
 
 void graph_t::connect_node_children() {
@@ -381,6 +390,8 @@ void graph_t::print_execution_order(std::ostream &os) {
 }
 
 namespace traits {
+static constexpr std::string_view const presentation_node =
+    "[shape=box, style=outline, color=green]";
 static constexpr std::string_view const framepass_node =
     "[shape=box, style=outline, color=black]";
 static constexpr std::string_view const uploadpass_node =
@@ -683,6 +694,8 @@ renderpass_node_t::record(std::span<renderpass_command_t> commands,
       commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                        p->layout, p->first_set, p->sets.size(),
                                        p->sets.data(), 0, nullptr);
+    } else if (auto *p = std::get_if<command::custom_command_t>(&command)) {
+		p->fn(commandbuffer);
     } else {
       UNREACHABLE("invalid draw command type")
       std::unreachable();
@@ -735,7 +748,7 @@ void graph_t::evaluate(evaluate_info_t &info) {
     // type of dependency they are and they correspond to wait dst stage
     // masks TopOfPipe is not a good solution!
     // So basically each dependency has a mask for itself, and it will then wait
-	// for all masks before computing
+    // for all masks before computing
     std::array<vk::PipelineStageFlags, 1> const wait_dst_stage_masks{
         vk::PipelineStageFlagBits::eTopOfPipe};
 
@@ -758,10 +771,6 @@ void graph_t::evaluate(evaluate_info_t &info) {
       signal_semaphores.push_back(lock.semaphore());
     }
 
-    //   std::vector<vk::Semaphore> signal_semaphores =
-    //       get_sync(*node).wait_group(info.flightframe) |
-    //       std::ranges::to<std::vector>();
-
     auto submit_info = vk::SubmitInfo{}
                            .setWaitDstStageMask(wait_dst_stage_masks)
                            .setCommandBuffers(recorded)
@@ -769,51 +778,6 @@ void graph_t::evaluate(evaluate_info_t &info) {
                            .setWaitSemaphores(wait_semaphores);
 
     info.queue.submit(submit_info);
-
-#if 0    
-    for (resource_t *input : node->inputs) {
-      std::span<texture_t> textures = m_texture_storage.find(input->name);
-      ENSURE_NOT(textures.empty(),
-                 "could not find output textures for framepass output {}",
-                 input->name)
-
-      vk::ImageAspectFlags aspect_mask = vk::ImageAspectFlags();
-      vk::ImageLayout new_layout = vk::ImageLayout::eReadOnlyOptimal;
-      if (auto *resource = std::get_if<attachment_info_t>(&input->resource)) {
-        if (resource->type == attachment_type_t::color) {
-          new_layout = vk::ImageLayout::eColorAttachmentOptimal;
-          aspect_mask |= vk::ImageAspectFlagBits::eColor;
-        } else if (resource->type == attachment_type_t::depth) {
-          new_layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
-          aspect_mask |= vk::ImageAspectFlagBits::eDepth;
-        }
-      }
-
-      // TODO: entirety of range and also layouts in barrier can just be stored
-      // in the resosurce itself
-      auto range = vk::ImageSubresourceRange{}
-                       .setAspectMask(aspect_mask)
-                       .setBaseMipLevel(0)
-                       .setLevelCount(1)
-                       .setBaseArrayLayer(0)
-                       .setLayerCount(1);
-
-      auto barrier = vk::ImageMemoryBarrier{}
-                         .setImage(textures[next_frame.flightframe].image)
-                         .setSubresourceRange(range)
-                         .setOldLayout(input->layout)
-                         .setNewLayout(new_layout)
-                         .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
-                         .setDstAccessMask(vk::AccessFlags())
-                         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-                         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
-
-      commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                                    vk::PipelineStageFlagBits::eTransfer,
-                                    vk::DependencyFlags(), nullptr, nullptr,
-                                    barrier);
-    }
-#endif
   }
 }
 

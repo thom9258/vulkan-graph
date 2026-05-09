@@ -1,13 +1,16 @@
 #pragma once
 
 #include "core.hpp"
+#include "flightframe_array.hpp"
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 
 namespace alex {
 
-struct presentation_context_info_t {
-  core_t *core{nullptr};
+struct presenter_info_t {
+  vk::PhysicalDevice physical_device;
+  vk::Device device;
+  vk::CommandPool commandpool;
   vk::SurfaceKHR surface;
   vk::Extent2D window_extent;
   bool enable_vsync{true};
@@ -33,27 +36,27 @@ struct presentation_info_t {
   vk::CommandBuffer commandbuffer;
 };
 
-struct presentation_context_t {
-  vk::Extent2D window_extent;
-  vk::SurfaceFormatKHR format;
-  vk::SwapchainKHR swapchain;
-  std::span<vk::Image> images;
-  std::span<vk::ImageView> imageviews;
-
-  struct {
-    flightframe_array_t<vk::Semaphore> image_available;
-    flightframe_array_t<vk::Fence> in_flight;
-    flightframe_array_t<vk::CommandBuffer> commandbuffers;
-
-    std::span<vk::Semaphore> render_finished;
-    uint32_t flightframe{0};
-    uint32_t image_index{0};
-  } sync;
-
-  void init(presentation_context_info_t &info, memory::arena &allocator);
+struct presenter_t {
+  explicit presenter_t(presenter_info_t &info);
   [[nodiscard]]
   next_frame_info_t wait_for_next_frame(vk::Device device);
-  void present(presentation_info_t& info);
+  void present(presentation_info_t &info);
+
+  vk::Extent2D window_extent;
+  vk::SurfaceFormatKHR format;
+  vk::UniqueSwapchainKHR _swapchain;
+  std::vector<vk::Image> _images;
+  std::vector<vk::UniqueImageView> _imageviews;
+
+  struct {
+    std::vector<vk::UniqueSemaphore> render_finished;
+    flightframe_array_t<vk::UniqueSemaphore> image_available;
+    flightframe_array_t<vk::UniqueFence> in_flight;
+    flightframe_array_t<vk::UniqueCommandBuffer> commandbuffers;
+
+    uint32_t flightframe{0};
+    uint32_t image_index{0};
+  } _sync;
 };
 
 } // namespace alex

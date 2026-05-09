@@ -1,7 +1,7 @@
 #include "core.hpp"
 #include "ensure.hpp"
-#include "log.hpp"
 #include "fixed_vector.hpp"
+#include "log.hpp"
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
@@ -13,23 +13,21 @@
 
 namespace alex {
 
-void context_t::init(context_info_t &info, memory::arena &allocator) {
+context_t::context_t(context_info_t &info) {
   if (info.instance_extensions.empty()) {
     LOG_WARN("No Vulkan Instance Extensions were provided");
   }
 
-
-  fixed_vector_t<const char *> extensions;
-  constexpr const std::size_t max_extensions{16};
-  extensions.init(allocator.allocate < const char*>(max_extensions));
+  std::vector<const char *> extensions;
   for (const char *extension : info.instance_extensions) {
-    extensions.put(extension);
+    extensions.push_back(extension);
   }
 
-  extensions.put(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-  LOG_INFO("Loaded Extensions ({}):", extensions.length());
-  for (std::size_t i = 0; i < extensions.length(); i++) {
-    LOG_INFO("  {}", extensions[i]);
+  extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+  LOG_INFO("Loaded Extensions ({}):", extensions.size());
+  for (const char *extension : extensions) {
+    LOG_INFO("  {}", extension);
   }
 
   std::array<const char *, 1> validation_layers{
@@ -45,7 +43,7 @@ void context_t::init(context_info_t &info, memory::arena &allocator) {
 
   auto instanceCreateInfo = vk::InstanceCreateInfo{}
                                 .setPApplicationInfo(&applicationInfo)
-                                .setEnabledExtensionCount(extensions.length())
+                                .setEnabledExtensionCount(extensions.size())
                                 .setPpEnabledExtensionNames(extensions.data());
 
   if (info.enable_validation) {
@@ -56,10 +54,13 @@ void context_t::init(context_info_t &info, memory::arena &allocator) {
     instanceCreateInfo.setPEnabledLayerNames(validation_layers);
   }
 
-  instance = vk::createInstance(instanceCreateInfo);
+  _instance = vk::createInstanceUnique(instanceCreateInfo);
 }
 
-auto get_queue_family(vk::PhysicalDevice device, vk::SurfaceKHR surface)
+auto context_t::instance() -> vk::Instance { return _instance.get(); }
+
+static constexpr auto get_queue_family(vk::PhysicalDevice device,
+                                       vk::SurfaceKHR surface)
     -> std::optional<std::uint32_t> {
 
   for (auto [i, family] :
@@ -81,12 +82,10 @@ auto get_queue_family(vk::PhysicalDevice device, vk::SurfaceKHR surface)
   return std::nullopt;
 }
 
-std::optional<std::uint64_t>
-rate_physical_device(vk::PhysicalDevice physical_device,
-                     vk::SurfaceKHR surface) {
-
+static constexpr auto rate_physical_device(vk::PhysicalDevice physical_device,
+                                           vk::SurfaceKHR surface)
+    -> std::optional<std::uint64_t> {
   std::optional<std::uint64_t> score{0};
-
   vk::PhysicalDeviceProperties properties = physical_device.getProperties();
   if (properties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
     score.value() += 200;
@@ -131,34 +130,27 @@ rate_physical_device(vk::PhysicalDevice physical_device,
   return score;
 }
 
-void core_t::init(core_info_t &info, memory::arena &allocator) {
-  ENSURE(info.context, "context must be set");
+core_t::core_t(core_info_t &info) {
   uint32_t physical_device_count{0};
-  vk::Result result = info.context->instance.enumeratePhysicalDevices(
-      &physical_device_count, nullptr);
+  vk::Result result =
+      info.instance.enumeratePhysicalDevices(&physical_device_count, nullptr);
   ENSURE(result == vk::Result::eSuccess,
          "Could not enumerate physical devices");
 
-  auto physical_devices =
-      allocator.allocate<vk::PhysicalDevice>(physical_device_count);
-  ENSURE_NOT(physical_devices.empty(), "Arena could not allocate");
-
-  result = info.context->instance.enumeratePhysicalDevices(
-      &physical_device_count, physical_devices.data());
+  std::vector<vk::PhysicalDevice> physical_devices(physical_device_count);
+  result = info.instance.enumeratePhysicalDevices(&physical_device_count,
+                                                  physical_devices.data());
 
   ENSURE(result == vk::Result::eSuccess,
          "Could not enumerate physical devices");
 
-  auto scores =
-      allocator.allocate<std::optional<std::uint64_t>>(physical_devices.size());
-  ENSURE_NOT(scores.empty(), "Arena could not allocate");
-
+  using score_t = std::optional<std::uint64_t>;
+  std::vector<score_t> scores(physical_devices.size());
   for (auto [i, physical_device] : physical_devices | std::views::enumerate) {
     scores[i] = rate_physical_device(physical_device, info.surface);
   }
 
   std::uint32_t best_score{0};
-
   LOG_INFO("Physical Devices ({}):", physical_device_count);
   for (auto [device, score] : std::views::zip(physical_devices, scores)) {
 
@@ -167,8 +159,9 @@ void core_t::init(core_info_t &info, memory::arena &allocator) {
 
     if (score.value() > best_score) {
       best_score = score.value();
-      physical_device = device;
+      _physical_device = device;
     }
+
     vk::PhysicalDeviceProperties properties = device.getProperties();
     LOG_INFO("  {}) {}, score: {}", properties.deviceName.data(),
              vk::to_string(properties.deviceType), score.value());
@@ -176,21 +169,21 @@ void core_t::init(core_info_t &info, memory::arena &allocator) {
   ENSURE(best_score > 0, "Could not get a suitable physical_device")
 
   {
-    vk::PhysicalDeviceProperties properties = physical_device.getProperties();
+    vk::PhysicalDeviceProperties properties = _physical_device.getProperties();
     LOG_INFO("Chosen Physical Device: {}", properties.deviceName.data());
   }
 
   {
     std::optional<std::uint32_t> family =
-        get_queue_family(physical_device, info.surface);
+        get_queue_family(_physical_device, info.surface);
     ENSURE(family, "Could not get a queue family for physical_device")
-    queuefamily_index = family.value();
+    _queuefamily_index = family.value();
   }
 
   std::array<float, 1> constexpr queue_priorities{1.0f};
   auto deviceQueueCreateInfo = vk::DeviceQueueCreateInfo{}
                                    .setFlags({})
-                                   .setQueueFamilyIndex(queuefamily_index)
+                                   .setQueueFamilyIndex(_queuefamily_index)
                                    .setQueuePriorities(queue_priorities)
                                    .setQueueCount(1);
 
@@ -210,16 +203,57 @@ void core_t::init(core_info_t &info, memory::arena &allocator) {
           .setPpEnabledExtensionNames(device_extensions.data())
           .setEnabledExtensionCount(device_extensions.size());
 
-  device = physical_device.createDevice(deviceCreateInfo);
+  _device = _physical_device.createDeviceUnique(deviceCreateInfo);
 
   constexpr int queue_index = 0;
-  queue = device.getQueue(queuefamily_index, queue_index);
+  _queue = _device->getQueue(_queuefamily_index, queue_index);
 
   auto commandPoolCreateInfo =
       vk::CommandPoolCreateInfo{}
           .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
-          .setQueueFamilyIndex(queuefamily_index);
-  commandpool = device.createCommandPool(commandPoolCreateInfo, nullptr);
+          .setQueueFamilyIndex(queuefamily_index());
+
+  _commandpool =
+      device().createCommandPoolUnique(commandPoolCreateInfo, nullptr);
+}
+
+auto core_t::physical_device() -> vk::PhysicalDevice {
+  return _physical_device;
+}
+
+auto core_t::device() -> vk::Device { return _device.get(); }
+
+auto core_t::queue() -> vk::Queue { return _queue; }
+
+auto core_t::queuefamily_index() -> std::uint32_t { return _queuefamily_index; }
+
+auto core_t::commandpool() -> vk::CommandPool { return _commandpool.get(); }
+
+auto core_t::create_descriptorpool(vk::DescriptorPoolCreateInfo info)
+    -> vk::UniqueDescriptorPool {
+  return device().createDescriptorPoolUnique(info);
+}
+
+auto core_t::create_commandbuffer() -> vk::UniqueCommandBuffer {
+  auto init_commandbuffer_alloc_info =
+      vk::CommandBufferAllocateInfo{}
+          .setCommandPool(commandpool())
+          .setLevel(vk::CommandBufferLevel::ePrimary)
+          .setCommandBufferCount(1);
+
+  return std::move(
+      device()
+          .allocateCommandBuffersUnique(init_commandbuffer_alloc_info)
+          .front());
+}
+
+auto core_t::create_fence_signaled() -> vk::UniqueFence {
+  return device().createFenceUnique(
+      vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled));
+}
+
+auto core_t::create_fence() -> vk::UniqueFence {
+  return device().createFenceUnique(vk::FenceCreateInfo{});
 }
 
 } // namespace alex

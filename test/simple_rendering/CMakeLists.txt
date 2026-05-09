@@ -21,6 +21,22 @@ FetchContent_Declare(SimpleGeometry
 )
 FetchContent_MakeAvailable(SimpleGeometry)
 
+FetchContent_Declare(imgui_external
+	URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.7.tar.gz
+	EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(imgui_external)
+
+add_library(imgui
+	${imgui_external_SOURCE_DIR}/imgui.cpp
+	${imgui_external_SOURCE_DIR}/imgui_draw.cpp
+	${imgui_external_SOURCE_DIR}/imgui_tables.cpp
+	${imgui_external_SOURCE_DIR}/imgui_widgets.cpp
+	${imgui_external_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+	${imgui_external_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
+target_include_directories(imgui PUBLIC ${imgui_external_SOURCE_DIR} ${SDL2_INCLUDE_DIRS})
+
 set(PROGRAM_SOURCES
   ../../alex/log.cpp
   ../../alex/arena.cpp
@@ -43,6 +59,7 @@ target_include_directories(${PROJECT_NAME}
   PRIVATE 
     ${Vulkan_INCLUDE_DIR}
     ${SDL2_INCLUDE_DIRS}
+    ${imgui_external_INCLUDE_DIRS}
 	../../
 	../
 )
@@ -53,4 +70,5 @@ target_link_libraries(${PROJECT_NAME}
   ${SDL2_LIBRARIES}
   SimpleGeometry
   glm::glm
+  imgui
 )

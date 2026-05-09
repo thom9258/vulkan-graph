@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core.hpp"
+#include "flightframe_array.hpp"
 
 namespace alex::graph {
 

@@ -13,8 +13,8 @@
 
 namespace alex {
 
-vk::SurfaceFormatKHR get_best_swapchain_surface_format(
-    const std::span<vk::SurfaceFormatKHR> availables) {
+static constexpr auto get_best_swapchain_surface_format(
+    const std::span<vk::SurfaceFormatKHR> availables) -> vk::SurfaceFormatKHR {
   for (const auto &available : availables) {
     if (available.format == vk::Format::eB8G8R8A8Srgb &&
         available.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
@@ -25,14 +25,11 @@ vk::SurfaceFormatKHR get_best_swapchain_surface_format(
   return availables.front();
 }
 
-void presentation_context_t::init(presentation_context_info_t &info,
-                                  memory::arena &allocator) {
-  ENSURE(info.core, "Core ptr not provided")
-
+presenter_t::presenter_t(presenter_info_t &info) {
   window_extent = info.window_extent;
 
   vk::SurfaceCapabilitiesKHR window_capabilities =
-      info.core->physical_device.getSurfaceCapabilitiesKHR(info.surface);
+      info.physical_device.getSurfaceCapabilitiesKHR(info.surface);
 
   const bool window_size_is_undefined =
       window_capabilities.currentExtent.width ==
@@ -44,13 +41,13 @@ void presentation_context_t::init(presentation_context_info_t &info,
   }
 
   std::uint32_t surface_format_count{0};
-  vk::Result result = info.core->physical_device.getSurfaceFormatsKHR(
+  vk::Result result = info.physical_device.getSurfaceFormatsKHR(
       info.surface, &surface_format_count, nullptr);
   ENSURE(result == vk::Result::eSuccess, "could not get surfac format count!")
-  auto available_surface_formats =
-      allocator.allocate<vk::SurfaceFormatKHR>(surface_format_count);
-  ENSURE_NOT(available_surface_formats.empty(), "out of memory!")
-  result = info.core->physical_device.getSurfaceFormatsKHR(
+  std::vector<vk::SurfaceFormatKHR> available_surface_formats(
+      surface_format_count);
+
+  result = info.physical_device.getSurfaceFormatsKHR(
       info.surface, &surface_format_count, available_surface_formats.data());
   ENSURE(result == vk::Result::eSuccess, "could not get surfac formats!")
 
@@ -109,97 +106,90 @@ void presentation_context_t::init(presentation_context_info_t &info,
           .setPresentMode(present_mode)
           .setImageSharingMode(vk::SharingMode::eExclusive);
 
-  swapchain =
-      info.core->device.createSwapchainKHR(swapChainCreateInfo, nullptr);
+  _swapchain =
+      info.device.createSwapchainKHRUnique(swapChainCreateInfo, nullptr);
 
   {
     std::uint32_t image_count{0};
-    vk::Result result = info.core->device.getSwapchainImagesKHR(
-        swapchain, &image_count, nullptr);
+    vk::Result result = info.device.getSwapchainImagesKHR(
+        _swapchain.get(), &image_count, nullptr);
 
     ENSURE(result == vk::Result::eSuccess,
            "could not get swapchain image count!")
-    auto allocated_images = allocator.allocate<vk::Image>(image_count);
-    ENSURE_NOT(allocated_images.empty(), "out of memory!")
 
-    result = info.core->device.getSwapchainImagesKHR(swapchain, &image_count,
-                                                     allocated_images.data());
+    _images.resize(image_count);
+    result = info.device.getSwapchainImagesKHR(_swapchain.get(), &image_count,
+                                               _images.data());
     ENSURE(result == vk::Result::eSuccess, "could not get surfac formats!")
-    images = allocated_images;
   }
 
   {
-    auto allocated_imageviews =
-        allocator.allocate<vk::ImageView>(images.size());
-    ENSURE_NOT(allocated_imageviews.empty(), "out of memory!")
-    imageviews = allocated_imageviews;
-  }
-  auto subresourceRange = vk::ImageSubresourceRange{}
-                              .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                              .setBaseMipLevel(0)
-                              .setLevelCount(1)
-                              .setBaseArrayLayer(0)
-                              .setLayerCount(1);
+    _imageviews.resize(_images.size());
+    auto subresourceRange = vk::ImageSubresourceRange{}
+                                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                .setBaseMipLevel(0)
+                                .setLevelCount(1)
+                                .setBaseArrayLayer(0)
+                                .setLayerCount(1);
 
-  auto componentMapping = vk::ComponentMapping{}
-                              .setR(vk::ComponentSwizzle::eIdentity)
-                              .setG(vk::ComponentSwizzle::eIdentity)
-                              .setB(vk::ComponentSwizzle::eIdentity)
-                              .setA(vk::ComponentSwizzle::eIdentity);
+    auto componentMapping = vk::ComponentMapping{}
+                                .setR(vk::ComponentSwizzle::eIdentity)
+                                .setG(vk::ComponentSwizzle::eIdentity)
+                                .setB(vk::ComponentSwizzle::eIdentity)
+                                .setA(vk::ComponentSwizzle::eIdentity);
 
-  auto imageViewCreateInfo = vk::ImageViewCreateInfo{}
-                                 .setSubresourceRange(subresourceRange)
-                                 .setViewType(vk::ImageViewType::e2D)
-                                 .setFormat(format.format)
-                                 .setComponents(componentMapping);
+    auto imageViewCreateInfo = vk::ImageViewCreateInfo{}
+                                   .setSubresourceRange(subresourceRange)
+                                   .setViewType(vk::ImageViewType::e2D)
+                                   .setFormat(format.format)
+                                   .setComponents(componentMapping);
 
-  for (auto [i, view] : imageviews | std::views::enumerate) {
-    imageViewCreateInfo.setImage(images[i]);
-    imageviews[i] = info.core->device.createImageView(imageViewCreateInfo);
+    for (auto [i, view] : _imageviews | std::views::enumerate) {
+      imageViewCreateInfo.setImage(_images[i]);
+      view = info.device.createImageViewUnique(imageViewCreateInfo);
+    }
   }
 
-  auto commandbuffer_alloc_info =
-      vk::CommandBufferAllocateInfo{}
-          .setLevel(vk::CommandBufferLevel::ePrimary)
-          .setCommandPool(info.core->commandpool)
-          .setCommandBufferCount(frames_in_flight);
+  {
+    auto commandbuffer_alloc_info =
+        vk::CommandBufferAllocateInfo{}
+            .setLevel(vk::CommandBufferLevel::ePrimary)
+            .setCommandPool(info.commandpool)
+            .setCommandBufferCount(frames_in_flight);
 
-  result = info.core->device.allocateCommandBuffers(&commandbuffer_alloc_info,
-                                                    sync.commandbuffers.data());
-  ENSURE(result == vk::Result::eSuccess, "could not allocate commandbuffers");
+    auto commandbuffers =
+        info.device.allocateCommandBuffersUnique(commandbuffer_alloc_info);
 
-  auto semaphore_create_info = vk::SemaphoreCreateInfo{};
-
-  for (vk::Semaphore &semaphore : sync.image_available) {
-    result = info.core->device.createSemaphore(&semaphore_create_info, nullptr,
-                                               &semaphore);
-    ENSURE(result == vk::Result::eSuccess, "could not allocate semaphore");
+    for (auto [i, commandbuffer] : commandbuffers | std::views::enumerate) {
+      _sync.commandbuffers[i] = std::move(commandbuffer);
+    }
   }
-
-  sync.render_finished = allocator.allocate<vk::Semaphore>(images.size());
-
-  for (vk::Semaphore &semaphore : sync.render_finished) {
-    result = info.core->device.createSemaphore(&semaphore_create_info, nullptr,
-                                               &semaphore);
-    ENSURE(result == vk::Result::eSuccess, "could not allocate semaphore");
+  {
+    _sync.render_finished.resize(_images.size());
+    auto create_info = vk::SemaphoreCreateInfo{};
+    for (vk::UniqueSemaphore &semaphore : _sync.render_finished) {
+      semaphore = info.device.createSemaphoreUnique(create_info, nullptr);
+    }
   }
-
+  {
+    auto create_info = vk::SemaphoreCreateInfo{};
+    for (vk::UniqueSemaphore &semaphore : _sync.image_available) {
+      semaphore = info.device.createSemaphoreUnique(create_info, nullptr);
+    }
+  }
   // Note: fences starts off as signaled because we preemptively need to wait
   // for the first frame fence
   auto fence_create_info =
       vk::FenceCreateInfo{}.setFlags(vk::FenceCreateFlagBits::eSignaled);
 
-  for (vk::Fence &fence : sync.in_flight) {
-    result = info.core->device.createFence(&fence_create_info, nullptr, &fence);
-    ENSURE(result == vk::Result::eSuccess, "could not allocate fence");
+  for (vk::UniqueFence &fence : _sync.in_flight) {
+    fence = info.device.createFenceUnique(fence_create_info, nullptr);
   }
 }
 
-next_frame_info_t
-presentation_context_t::wait_for_next_frame(vk::Device device) {
-  // TODO: this goes into a "swapchain wait for next frame" job
-
-  std::array<vk::Fence, 1> const fences{sync.in_flight[sync.flightframe]};
+next_frame_info_t presenter_t::wait_for_next_frame(vk::Device device) {
+  std::array<vk::Fence, 1> const fences{
+      _sync.in_flight[_sync.flightframe].get()};
   const auto max_wait = std::numeric_limits<unsigned int>::max();
   vk::Result wait_result = device.waitForFences(fences, true, max_wait);
   ENSURE(wait_result == vk::Result::eSuccess, "Could not wait for swapchain")
@@ -207,24 +197,25 @@ presentation_context_t::wait_for_next_frame(vk::Device device) {
 
   const auto max_acquire_wait = std::numeric_limits<uint64_t>::max();
   vk::ResultValue<uint32_t> result = device.acquireNextImageKHR(
-      swapchain, max_acquire_wait, sync.image_available[sync.flightframe],
-      nullptr);
+      _swapchain.get(), max_acquire_wait,
+      _sync.image_available[_sync.flightframe].get(), nullptr);
 
   ENSURE(result.result == vk::Result::eSuccess,
          "Could not acquire next image from swapchain")
-  sync.image_index = result.value;
+  _sync.image_index = result.value;
 
-  vk::CommandBuffer &commandbuffer = sync.commandbuffers[sync.flightframe];
+  vk::CommandBuffer commandbuffer =
+      _sync.commandbuffers[_sync.flightframe].get();
   commandbuffer.reset();
 
   next_frame_info_t next_frame_info;
   next_frame_info.presentation_commandbuffer = commandbuffer;
-  next_frame_info.flightframe = sync.flightframe;
+  next_frame_info.flightframe = _sync.flightframe;
   return next_frame_info;
 }
 
 // TODO: this goes into "presentation" job
-void presentation_context_t::present(presentation_info_t &info) {
+void presenter_t::present(presentation_info_t &info) {
 
   {
     auto range = vk::ImageSubresourceRange{}
@@ -235,7 +226,7 @@ void presentation_context_t::present(presentation_info_t &info) {
                      .setLayerCount(1);
 
     auto barrier = vk::ImageMemoryBarrier{}
-                       .setImage(images[sync.image_index])
+                       .setImage(_images[_sync.image_index])
                        .setSubresourceRange(range)
                        .setOldLayout(vk::ImageLayout::eUndefined)
                        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
@@ -298,7 +289,7 @@ void presentation_context_t::present(presentation_info_t &info) {
                         .setDstSubresource(dst_subresource);
 
   info.commandbuffer.blitImage(info.image, vk::ImageLayout::eTransferSrcOptimal,
-                               images[sync.image_index],
+                               _images[_sync.image_index],
                                vk::ImageLayout::eTransferDstOptimal, image_blit,
                                info.blit_filter);
 
@@ -313,7 +304,7 @@ void presentation_context_t::present(presentation_info_t &info) {
 
   auto to_present_barrier =
       vk::ImageMemoryBarrier{}
-          .setImage(images[sync.image_index])
+          .setImage(_images[_sync.image_index])
           .setSubresourceRange(to_present_range)
           .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
           .setNewLayout(vk::ImageLayout::ePresentSrcKHR)
@@ -329,10 +320,10 @@ void presentation_context_t::present(presentation_info_t &info) {
 
   info.commandbuffer.end();
   std::array<vk::Semaphore, 1> const wait_semaphores{
-      sync.image_available[sync.flightframe]};
+      _sync.image_available[_sync.flightframe].get()};
 
   std::array<vk::Semaphore, 1> const signal_semaphores{
-      sync.render_finished[sync.image_index]};
+      _sync.render_finished[_sync.image_index].get()};
 
   std::array<vk::PipelineStageFlags, 1> const wait_dst_stage_masks{
       vk::PipelineStageFlagBits::eColorAttachmentOutput};
@@ -343,10 +334,10 @@ void presentation_context_t::present(presentation_info_t &info) {
                          .setCommandBuffers({info.commandbuffer})
                          .setSignalSemaphores(signal_semaphores);
 
-  info.queue.submit(submit_info, sync.in_flight[sync.flightframe]);
+  info.queue.submit(submit_info, _sync.in_flight[_sync.flightframe].get());
 
-  std::array<vk::SwapchainKHR, 1> const swapchains{swapchain};
-  std::array<uint32_t, 1> const image_indices{sync.image_index};
+  std::array<vk::SwapchainKHR, 1> const swapchains{_swapchain.get()};
+  std::array<uint32_t, 1> const image_indices{_sync.image_index};
   auto present_info = vk::PresentInfoKHR{}
                           .setWaitSemaphores(signal_semaphores)
                           .setSwapchains(swapchains)
@@ -354,7 +345,7 @@ void presentation_context_t::present(presentation_info_t &info) {
 
   vk::Result result = info.queue.presentKHR(present_info);
   ENSURE(result == vk::Result::eSuccess, "could not present frame")
-  sync.flightframe = (sync.flightframe + 1) % frames_in_flight;
+  _sync.flightframe = (_sync.flightframe + 1) % frames_in_flight;
 }
 
 } // namespace alex

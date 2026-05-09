@@ -1,5 +1,6 @@
 #pragma once
 
+#include "flightframe_array.hpp"
 #include "geometrypass_builder.hpp"
 #include "graph_builder.hpp"
 #include "memory_buffer.hpp"
@@ -23,6 +24,10 @@ struct draw_t {
 
 struct bind_pipeline_t {
   vk::Pipeline pipeline;
+};
+
+struct custom_command_t {
+  std::function<void(vk::CommandBuffer)> fn;
 };
 
 struct bind_vertexbuffer_t {
@@ -55,6 +60,19 @@ struct set_viewport_t {
   } depth;
 };
 
+struct present_t {
+  struct {
+    vk::Offset3D start;
+    vk::Offset3D end;
+  } source;
+  struct {
+    vk::Offset3D start;
+    vk::Offset3D end;
+  } destination;
+
+  vk::Filter filter;
+};
+
 struct set_scissor_t {
   vk::Offset2D offset;
   vk::Extent2D extent;
@@ -73,9 +91,14 @@ using renderpass_command_t =
     std::variant<command::draw_t, command::bind_pipeline_t,
                  command::bind_vertexbuffer_t, command::bind_indexbuffer_t,
                  command::bind_descriptorsets_t, command::set_viewport_t,
-                 command::set_scissor_t>;
+                 command::set_scissor_t, command::custom_command_t>;
 
 using uploadpass_command_t = std::variant<command::buffer_upload_t>;
+
+struct presentation_command_t {
+  std::string presentation_name;
+  command::present_t command;
+};
 
 struct renderpass_commands_t {
   std::string renderpass_name;
@@ -88,10 +111,12 @@ struct uploadpass_commands_t {
 };
 
 struct evaluate_info_t {
+  vk::Device device;
   vk::Queue queue;
   std::uint32_t flightframe;
   std::vector<renderpass_commands_t> renderpass_commands;
   std::vector<uploadpass_commands_t> uploadpass_commands;
+  std::optional<presentation_command_t> presentation_command;
 };
 
 struct resource_t {
@@ -107,7 +132,8 @@ struct resource_t {
 struct presentation_node_t;
 struct renderpass_node_t;
 struct uploadpass_node_t;
-using node_t = std::variant<presentation_node_t, renderpass_node_t, uploadpass_node_t>;
+using node_t =
+    std::variant<presentation_node_t, renderpass_node_t, uploadpass_node_t>;
 
 struct node_synchronization_info_t {
   vk::Device device;
@@ -179,13 +205,17 @@ struct presentation_node_t {
   resource_t *attachment{nullptr};
   std::vector<resource_t *> inputs;
   std::vector<resource_t *> outputs;
-  vk::Extent3D extent;
+  vk::Extent2D extent;
 
   node_edges_t node_edges;
   node_synchronization_t sync;
 
+  vk::SwapchainKHR swapchain;
+  flightframe_array_t<vk::Fence> in_flight;
+  flightframe_array_t<vk::Semaphore> image_available;
+
   [[nodiscard]]
-  vk::CommandBuffer record(std::uint32_t flightframe);
+  vk::CommandBuffer record(command::present_t command, vk::Device device, std::uint32_t flightframe);
 };
 
 struct renderpass_node_t {
