@@ -14,7 +14,7 @@
 #include "cube_prefab.hpp"
 #include "draw_info_uniform.hpp"
 #include "glm.hpp"
-// #include "orbit_camera.hpp"
+#include "orbit_camera.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -83,7 +83,7 @@ int main() {
   uint32_t window_extensions_count{0};
   SDL_Vulkan_GetInstanceExtensions(window, &window_extensions_count, nullptr);
 
-  std::vector<const char*> window_extensions(window_extensions_count);
+  std::vector<const char *> window_extensions(window_extensions_count);
   SDL_Vulkan_GetInstanceExtensions(window, &window_extensions_count,
                                    window_extensions.data());
 
@@ -178,14 +178,11 @@ int main() {
   /* ****************************************
    * Setup our meshes
    */
-  vk::UniqueCommandBuffer init_commandbuffer = core.create_commandbuffer();
 
-  init_commandbuffer->begin(vk::CommandBufferBeginInfo{});
   cube_prefab_info_t cube_prefab_info;
   cube_prefab_info.manager = &manager;
   cube_prefab_info.core = &core;
   cube_prefab_info.set_layout = geometry_pipeline_info_setlayout;
-  cube_prefab_info.commandbuffer = init_commandbuffer.get();
   cube_prefab_info.arena = &init_arena;
   cube_prefab_info.r = 1.0f;
   cube_prefab_info.g = 0.0f;
@@ -220,19 +217,6 @@ int main() {
   cube_prefab_info.transform = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 
   ecs::entity_id_t center = add_cube_prefab(cube_prefab_info);
-
-  init_commandbuffer->end();
-  vk::UniqueFence init_fence = core.create_fence();
-
-  auto commandbuffer_submit_info =
-      vk::SubmitInfo{}.setCommandBuffers(init_commandbuffer.get());
-
-  core.queue().submit(commandbuffer_submit_info, init_fence.get());
-
-  const auto max_wait = std::numeric_limits<unsigned int>::max();
-  vk::Result init_wait_result =
-      core.device().waitForFences(init_fence.get(), true, max_wait);
-  ENSURE(init_wait_result == vk::Result::eSuccess, "could not wait for queue")
 
   /* ****************************************
    * Setup presentation context
@@ -285,15 +269,18 @@ int main() {
 
   DeltaClock deltaclock;
 
-  glm::vec3 const up(0.0, 1.0, 0.0);
-  glm::vec3 const position(5.0, 2.0, 0.0);
-  glm::vec3 const target(0.0, 0.0, 0.0);
-  glm::mat4 const view = glm::lookAt(position, target, up);
+  float const camera_radius = 5.0f;
+  glm::vec3 const target(0.0, 0.0, 0);
+  OrbitCamera camera(target, 8.0f);
 
   const float aspect = static_cast<float>(width) / static_cast<float>(height);
   const float near_plane = 1.0f, far_plane = 20.0f;
-  glm::mat4 const projection =
-      glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
+  glm::mat4 const projection = std::invoke([&]() {
+    glm::mat4 p =
+        glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
+    p[1][1] *= -1.0f;
+    return p;
+  });
 
   /* ****************************************
    * Pipeline Setup using the created graph renderpasses
@@ -333,10 +320,14 @@ int main() {
     std::println("  Total {} bytes", init_arena.total_memory());
   }
 
-  button_t button_w;
-  button_t button_a;
-  button_t button_s;
-  button_t button_d;
+  struct buttons_t {
+  button_t w;
+  button_t a;
+  button_t s;
+  button_t d;
+  button_t e;
+  button_t q;
+  } buttons;
 
   bool running = true;
   while (running) {
@@ -355,16 +346,22 @@ int main() {
           running = false;
           break;
         case SDLK_w:
-          button_w.release();
+          buttons.w.release();
           break;
         case SDLK_s:
-          button_s.release();
+          buttons.s.release();
           break;
         case SDLK_a:
-          button_a.release();
+          buttons.a.release();
           break;
         case SDLK_d:
-          button_d.release();
+          buttons.d.release();
+          break;
+        case SDLK_e:
+          buttons.e.release();
+          break;
+        case SDLK_q:
+          buttons.q.release();
           break;
         }
         break;
@@ -375,33 +372,45 @@ int main() {
           running = false;
           break;
         case SDLK_w:
-          button_w.press();
+          buttons.w.press();
           break;
         case SDLK_s:
-          button_s.press();
+          buttons.s.press();
           break;
         case SDLK_a:
-          button_a.press();
+          buttons.a.press();
           break;
         case SDLK_d:
-          button_d.press();
+          buttons.d.press();
+          break;
+        case SDLK_e:
+          buttons.e.press();
+          break;
+        case SDLK_q:
+          buttons.q.press();
           break;
         }
         break;
       }
     }
 
-    if (button_w.is_pressed()) {
-      //camera.add_rotation(movespeed, 0.0f);
+    if (buttons.w.is_pressed()) {
+      camera.add_rotation(movespeed, 0.0f);
     }
-    if (button_a.is_pressed()) {
-      //camera.add_rotation(0.0f, movespeed);
+    if (buttons.a.is_pressed()) {
+      camera.add_rotation(0.0f, movespeed);
     }
-    if (button_s.is_pressed()) {
-      //camera.add_rotation(-movespeed, 0.0f);
+    if (buttons.s.is_pressed()) {
+      camera.add_rotation(-movespeed, 0.0f);
     }
-    if (button_d.is_pressed()) {
-      //camera.add_rotation(0.0f, -movespeed);
+    if (buttons.d.is_pressed()) {
+      camera.add_rotation(0.0f, -movespeed);
+    }
+    if (buttons.e.is_pressed()) {
+      camera.set_radius(camera.radius() + movespeed);
+    }
+    if (buttons.q.is_pressed()) {
+      camera.set_radius(camera.radius() - movespeed);
     }
 
     alex::next_frame_info_t next_frame_info =
@@ -447,30 +456,30 @@ int main() {
       auto *transform = manager.get_component<component_transform_t>(entity);
 
       draw_info_t draw_info;
-      draw_info.view = view;
+      draw_info.view = camera.view();
       draw_info.projection = projection;
       draw_info.model = transform->mat;
-      std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe].memory_ptr,
+      std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe]->memory_ptr(),
                   &draw_info, sizeof(draw_info));
 
       alex::graph::command::buffer_upload_t upload{
           .physical_device = core.physical_device(),
           .device = core.device(),
-          .direct_buffer = &mesh->direct_uniforms[next_frame_info.flightframe],
-          .buffer = &mesh->uniforms[next_frame_info.flightframe]};
+          .direct_buffer = &mesh->direct_uniforms[next_frame_info.flightframe].value(),
+          .buffer = &mesh->uniforms[next_frame_info.flightframe].value()};
 
       upload_commands.push_back(upload);
 
       alex::graph::command::bind_descriptorsets_t bind_descriptorsets{
           .layout = geometry_pipeline.layout,
-          .sets = {mesh->descriptorsets.get_set(next_frame_info.flightframe)},
+          .sets = {mesh->descriptorsets->get_set(next_frame_info.flightframe)},
       };
 
       alex::graph::command::bind_vertexbuffer_t bind_vertexbuffer{
           .first_binding = 0,
           .binding_offsets = {0},
           .first_buffer = 0,
-          .buffers = {mesh->vertices.buffer}};
+          .buffers = {mesh->vertices->buffer()}};
 
       alex::graph::command::draw_t draw{.instance_count = 1,
                                         .first_instance = 0,
@@ -497,8 +506,7 @@ int main() {
     presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.destination_offset_end = vk::Offset3D{
         static_cast<std::int32_t>(presenter.window_extent.width),
-        static_cast<std::int32_t>(presenter.window_extent.height),
-        1};
+        static_cast<std::int32_t>(presenter.window_extent.height), 1};
 
     presentation_info.blit_filter = vk::Filter::eLinear;
     std::span<alex::texture_t> final_images =

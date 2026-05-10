@@ -2,7 +2,10 @@
 
 #include "vulkan_include.hpp"
 
+#include <concepts>
+#include <functional>
 #include <span>
+#include <type_traits>
 
 namespace alex {
 
@@ -42,6 +45,24 @@ public:
   auto create_commandbuffer() -> vk::UniqueCommandBuffer;
   auto create_fence() -> vk::UniqueFence;
   auto create_fence_signaled() -> vk::UniqueFence;
+
+  template <typename F>
+    requires requires(F f, vk::CommandBuffer cmdb) { f(cmdb); }
+  constexpr auto immediate_evaluate(F &&f) -> vk::Result {
+
+    vk::UniqueCommandBuffer commandbuffer = create_commandbuffer();
+    commandbuffer->begin(vk::CommandBufferBeginInfo{});
+    std::invoke(std::forward<F>(f), commandbuffer.get());
+
+    commandbuffer->end();
+    auto commandbuffer_submit_info =
+        vk::SubmitInfo{}.setCommandBuffers(commandbuffer.get());
+
+    vk::UniqueFence fence = create_fence();
+    queue().submit(commandbuffer_submit_info, fence.get());
+    const auto max_wait = std::numeric_limits<unsigned int>::max();
+    return device().waitForFences(fence.get(), true, max_wait);
+  }
 
 private:
   vk::PhysicalDevice _physical_device;

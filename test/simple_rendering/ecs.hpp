@@ -1,5 +1,6 @@
 #pragma once
 
+#include <alex/flightframe_array.hpp>
 #include <alex/memory_buffer.hpp>
 #include <alex/uniform_descriptorsets.hpp>
 
@@ -8,11 +9,11 @@
 #include "../sukoshi_ecs/sukoshi_ecs.hpp"
 
 struct component_mesh_t {
-  alex::memory_buffer_t vertices;
+  std::optional<alex::memory_buffer_t> vertices;
   std::uint32_t vertices_length;
-  alex::flightframe_array_t<alex::direct_memory_buffer_t> direct_uniforms;
-  alex::flightframe_array_t<alex::memory_buffer_t> uniforms;
-  alex::uniform_descriptorsets_t descriptorsets;
+  alex::flightframe_array_t<std::optional<alex::direct_memory_buffer_t>> direct_uniforms;
+  alex::flightframe_array_t<std::optional<alex::memory_buffer_t>> uniforms;
+  std::optional<alex::uniform_descriptorsets_t> descriptorsets;
 };
 
 struct component_transform_t {

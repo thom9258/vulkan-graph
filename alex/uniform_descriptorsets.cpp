@@ -7,7 +7,8 @@
 
 namespace alex {
 
-void uniform_descriptorsets_t::init(uniform_descriptorsets_info_t &info) {
+uniform_descriptorsets_t::uniform_descriptorsets_t(
+    uniform_descriptorsets_info_t &info) {
 
   auto layouts = std::views::repeat(info.layout, info.set_count) |
                  std::ranges::to<std::vector>();
@@ -16,7 +17,7 @@ void uniform_descriptorsets_t::init(uniform_descriptorsets_info_t &info) {
                         .setDescriptorPool(info.pool)
                         .setSetLayouts(layouts);
 
-  sets = info.device.allocateDescriptorSets(alloc_info);
+  sets = info.device.allocateDescriptorSetsUnique(alloc_info);
   ENSURE_NOT(sets.empty(), "could not allocate descriptor sets")
   ENSURE(sets.size() == info.set_count,
          "could not allocate {} descriptor sets got {} instead", info.set_count,
@@ -31,7 +32,7 @@ void uniform_descriptorsets_t::update(
          sets.size())
 
   const auto buffer_info = vk::DescriptorBufferInfo{}
-                               .setBuffer(info.buffer->buffer)
+                               .setBuffer(info.buffer->buffer())
                                .setOffset(info.buffer_offset)
                                .setRange(info.buffer_size);
 
@@ -39,7 +40,7 @@ void uniform_descriptorsets_t::update(
       vk::WriteDescriptorSet{}
           .setDstBinding(0)
           .setDstArrayElement(0)
-          .setDstSet(sets.at(info.set_index))
+          .setDstSet(sets.at(info.set_index).get())
           .setDescriptorCount(1)
           .setDescriptorType(vk::DescriptorType::eUniformBuffer)
           .setBufferInfo(buffer_info)};
@@ -50,7 +51,7 @@ void uniform_descriptorsets_t::update(
 vk::DescriptorSet uniform_descriptorsets_t::get_set(std::size_t i) {
   ENSURE(i < sets.size(), "Set index {} is invalid for sets of size {}", i,
          sets.size())
-  return sets[i];
+  return sets[i].get();
 }
 
 } // namespace alex

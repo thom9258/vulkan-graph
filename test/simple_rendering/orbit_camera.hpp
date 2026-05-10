@@ -42,14 +42,15 @@ private:
   float m_phi;   // x rotation
   float m_theta; // z rotation
 
-  struct {
-    float min{0 + (0.05f * std::numbers::pi_v<float>)};
-    float max{std::numbers::pi_v<float> - (0.05f * std::numbers::pi_v<float>)};
+  struct phi_limits {
+    static constexpr float offset = 0.05f * std::numbers::pi_v<float>;
+    float min{0 + offset};
+    float max{std::numbers::pi_v<float> - offset};
   } m_phi_limits;
 };
 
 OrbitCamera::OrbitCamera(const glm::vec3 center, const float radius)
-    : m_center(center), m_radius(radius), m_phi(std::numbers::pi_v<float> * 0.75f),
+    : m_center(center), m_radius(radius), m_phi(std::numbers::pi_v<float> * 0.25f),
       m_theta(0) {}
 
 void OrbitCamera::phi_clamp() {

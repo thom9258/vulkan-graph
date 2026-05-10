@@ -622,8 +622,8 @@ uploadpass_node_t::record(std::span<uploadpass_command_t> commands,
       alex::memory_buffer_write_info_t write_info;
       write_info.physical_device = p->physical_device;
       write_info.device = p->device;
-      write_info.memory = p->direct_buffer;
-      write_info.write_size = p->buffer->memory_size;
+      write_info.direct = p->direct_buffer;
+      write_info.write_size = p->buffer->memory_size();
       write_info.commandbuffer = commandbuffer;
       p->buffer->record_write(write_info);
     } else {

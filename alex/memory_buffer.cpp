@@ -4,13 +4,13 @@
 
 namespace alex {
 
-void direct_memory_buffer_t::init(direct_memory_buffer_info_t &info) {
+direct_memory_buffer_t::direct_memory_buffer_t(
+    direct_memory_buffer_info_t &info)
+    : _device{info.device} {
   vk::BufferUsageFlags usage_flags = vk::BufferUsageFlagBits::eTransferSrc;
-
   if (info.buffer_type == memory_buffer_type_t::uniform) {
     usage_flags |= vk::BufferUsageFlagBits::eUniformBuffer;
-  }
-  else if (info.buffer_type == memory_buffer_type_t::vertices) {
+  } else if (info.buffer_type == memory_buffer_type_t::vertices) {
     usage_flags |= vk::BufferUsageFlagBits::eVertexBuffer;
   }
 
@@ -23,12 +23,12 @@ void direct_memory_buffer_t::init(direct_memory_buffer_info_t &info) {
                               .setUsage(usage_flags)
                               .setSharingMode(vk::SharingMode::eExclusive);
 
-  buffer = info.device.createBuffer(bufferInfo, nullptr);
+  _buffer = info.device.createBufferUnique(bufferInfo, nullptr);
 
   vk::PhysicalDeviceMemoryProperties memProperties =
       info.physical_device.getMemoryProperties();
   vk::MemoryRequirements memRequirements =
-      info.device.getBufferMemoryRequirements(buffer);
+      info.device.getBufferMemoryRequirements(_buffer.get());
 
   const auto memoryTypeIndex = find_memory_type(
       memProperties, memRequirements.memoryTypeBits, property_flags);
@@ -37,26 +37,28 @@ void direct_memory_buffer_t::init(direct_memory_buffer_info_t &info) {
                        .setAllocationSize(memRequirements.size)
                        .setMemoryTypeIndex(memoryTypeIndex);
 
-  memory = info.device.allocateMemory(allocInfo, nullptr);
-  info.device.bindBufferMemory(buffer, memory, 0);
-  memory_size = info.memory_size;
-  memory_ptr =
-      info.device.mapMemory(memory, 0, memory_size, vk::MemoryMapFlags());
+  _memory = info.device.allocateMemoryUnique(allocInfo, nullptr);
+  info.device.bindBufferMemory(_buffer.get(), _memory.get(), 0);
+  _memory_size = info.memory_size;
+  _memory_ptr = info.device.mapMemory(_memory.get(), 0, _memory_size,
+                                      vk::MemoryMapFlags());
 }
 
-void direct_memory_buffer_t::cleanup(vk::Device device) {
-  device.unmapMemory(memory);
-  device.destroyBuffer(buffer);
-  device.freeMemory(memory);
+direct_memory_buffer_t::~direct_memory_buffer_t() {
 }
 
-void memory_buffer_t::init(memory_buffer_info_t &info) {
+auto direct_memory_buffer_t::buffer() -> vk::Buffer { return _buffer.get(); }
+auto direct_memory_buffer_t::memory_size() -> std::size_t {
+  return _memory_size;
+}
+auto direct_memory_buffer_t::memory_ptr() -> void * { return _memory_ptr; }
 
+memory_buffer_t::memory_buffer_t(memory_buffer_info_t &info)
+    : _device{info.device} {
   vk::BufferUsageFlags usage_flags = vk::BufferUsageFlagBits::eTransferDst;
   if (info.buffer_type == memory_buffer_type_t::uniform) {
     usage_flags |= vk::BufferUsageFlagBits::eUniformBuffer;
-  }
-  else if (info.buffer_type == memory_buffer_type_t::vertices) {
+  } else if (info.buffer_type == memory_buffer_type_t::vertices) {
     usage_flags |= vk::BufferUsageFlagBits::eVertexBuffer;
   }
 
@@ -68,12 +70,12 @@ void memory_buffer_t::init(memory_buffer_info_t &info) {
                               .setUsage(usage_flags)
                               .setSharingMode(vk::SharingMode::eExclusive);
 
-  buffer = info.device.createBuffer(bufferInfo, nullptr);
+  _buffer = info.device.createBufferUnique(bufferInfo, nullptr);
 
   vk::PhysicalDeviceMemoryProperties memProperties =
       info.physical_device.getMemoryProperties();
   vk::MemoryRequirements memRequirements =
-      info.device.getBufferMemoryRequirements(buffer);
+      info.device.getBufferMemoryRequirements(_buffer.get());
 
   const auto memoryTypeIndex = find_memory_type(
       memProperties, memRequirements.memoryTypeBits, property_flags);
@@ -82,18 +84,22 @@ void memory_buffer_t::init(memory_buffer_info_t &info) {
                        .setAllocationSize(memRequirements.size)
                        .setMemoryTypeIndex(memoryTypeIndex);
 
-  memory = info.device.allocateMemory(allocInfo, nullptr);
-  info.device.bindBufferMemory(buffer, memory, 0);
-  memory_size = info.memory_size;
+  _memory = info.device.allocateMemoryUnique(allocInfo, nullptr);
+  info.device.bindBufferMemory(_buffer.get(), _memory.get(), 0);
+  _memory_size = info.memory_size;
 }
 
-void memory_buffer_t::record_write(memory_buffer_write_info_t &info) {
+auto memory_buffer_t::record_write(memory_buffer_write_info_t &info) -> void {
   auto buffercopy = vk::BufferCopy{}
                         .setSrcOffset(info.source_offset)
                         .setDstOffset(info.destination_offset)
                         .setSize(info.write_size);
 
-  info.commandbuffer.copyBuffer(info.memory->buffer, buffer, {buffercopy});
+  info.commandbuffer.copyBuffer(info.direct->buffer(), _buffer.get(),
+                                {buffercopy});
 }
+
+auto memory_buffer_t::buffer() -> vk::Buffer { return _buffer.get(); }
+auto memory_buffer_t::memory_size() -> std::size_t { return _memory_size; }
 
 } // namespace alex
