@@ -1,7 +1,8 @@
 #include <alex/core.hpp>
 #include <alex/drawing.hpp>
 #include <alex/ensure.hpp>
-#include <alex/graph.hpp>
+// #include <alex/graph.hpp>
+#include <alex/geometrypass_builder.hpp>
 #include <alex/memory_buffer.hpp>
 #include <alex/pipeline_builder.hpp>
 #include <alex/presentation_context.hpp>
@@ -233,6 +234,73 @@ int main() {
   alex::presenter_t presenter(presenter_info);
 
   /* ****************************************
+   * Setup rendering
+   */
+
+  alex::texture_info_t colorattachment_info;
+  colorattachment_info.physical_device = core.physical_device();
+  colorattachment_info.device = core.device();
+  colorattachment_info.extent.setWidth(render_extent.width)
+      .setHeight(render_extent.height);
+
+  colorattachment_info.format = vk::Format::eR8G8B8A8Srgb;
+  colorattachment_info.tiling = vk::ImageTiling::eOptimal;
+  colorattachment_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
+  colorattachment_info.property_flags =
+      vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+  colorattachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
+                               vk::ImageUsageFlagBits::eTransferSrc |
+                               vk::ImageUsageFlagBits::eSampled;
+
+  std::vector<alex::texture_t> colorattachments(alex::frames_in_flight);
+  for (alex::texture_t &attachment : colorattachments) {
+    attachment.init(colorattachment_info);
+  }
+
+  alex::texture_info_t depthattachment_info;
+  depthattachment_info.physical_device = core.physical_device();
+  depthattachment_info.device = core.device();
+  depthattachment_info.extent.setWidth(render_extent.width)
+      .setHeight(render_extent.height);
+
+  depthattachment_info.format = vk::Format::eR8G8B8A8Srgb;
+  depthattachment_info.tiling = vk::ImageTiling::eOptimal;
+  depthattachment_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
+  depthattachment_info.property_flags =
+      vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+  depthattachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
+                               vk::ImageUsageFlagBits::eTransferSrc |
+                               vk::ImageUsageFlagBits::eSampled;
+
+  std::vector<alex::texture_t> depthattachments(alex::frames_in_flight);
+  for (alex::texture_t &attachment : depthattachments) {
+    attachment.init(depthattachment_info);
+  }
+
+  auto geometrypass_info = alex::graph::geometrypass_info_t(core.device())
+                               .set_color_format(vk::Format::eR8G8B8A8Srgb)
+                               .set_depth_format(vk::Format::eD32Sfloat)
+                               .set_color_clearvalue(0.5f, 0.5f, 0.5f, 1.0f)
+                               .set_depth_clearvalue(1.0f)
+                               .set_extent(render_extent)
+                               .set_loadop(vk::AttachmentLoadOp::eClear);
+
+  alex::graph::geometrypass_t geometry_pass(geometrypass_info);
+
+  auto geometry_pipeline_info =
+      alex::graph::pipeline_info_t(core.device())
+          .set_extent(render_extent)
+          .set_renderpass(geometry_pass.renderpass)
+          .set_vertex_program_path("./geometry.vert.spv")
+          .set_fragment_program_path("./geometry.frag.spv")
+          .add_setlayout(geometry_pipeline_info_setlayout);
+
+  alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
+
+#if 0
+  /* ****************************************
    * Setup render graph
    */
   auto graph_info = alex::graph::graph_info_t(
@@ -264,22 +332,7 @@ int main() {
   std::println("======================");
   graph.print_graphviz(std::cout);
   std::println("======================");
-
-  DeltaClock deltaclock;
-
-  float const camera_radius = 4.0f;
-  glm::vec3 const target(0.0, 0.0, 0);
-  OrbitCamera camera(target, camera_radius);
-
-  const float aspect = static_cast<float>(width) / static_cast<float>(height);
-  const float near_plane = 1.0f, far_plane = 20.0f;
-  glm::mat4 const projection = std::invoke([&]() {
-    glm::mat4 p =
-        glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
-    p[1][1] *= -1.0f;
-    return p;
-  });
-
+  
   /* ****************************************
    * Pipeline Setup using the created graph renderpasses
    */
@@ -303,11 +356,28 @@ int main() {
 
   alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
+#endif
+
+  DeltaClock deltaclock;
+
+  float const camera_radius = 4.0f;
+  glm::vec3 const target(0.0, 0.0, 0);
+  OrbitCamera camera(target, camera_radius);
+
+  const float aspect = static_cast<float>(width) / static_cast<float>(height);
+  const float near_plane = 1.0f, far_plane = 20.0f;
+  glm::mat4 const projection = std::invoke([&]() {
+    glm::mat4 p =
+        glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
+    p[1][1] *= -1.0f;
+    return p;
+  });
+
   {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto time_ns = end_time - start_time;
-    auto time = std::chrono::duration_cast<
-        std::chrono::duration<double /*, std::milli*/>>(time_ns);
+    auto time =
+        std::chrono::duration_cast<std::chrono::duration<double>>(time_ns);
     std::println("=============================");
     std::println("Initialization Info:");
     std::println("Execution Time: {}", time);
@@ -414,12 +484,7 @@ int main() {
     alex::next_frame_info_t next_frame_info =
         presenter.wait_for_next_frame(core.device());
 
-    // TODO: presentation context should not own a commandbuffer, you should own
-    // it yourself
- //  next_frame_info.presentation_commandbuffer.reset();
- //  next_frame_info.presentation_commandbuffer.begin(
- //      vk::CommandBufferBeginInfo{});
-
+#if 0
     std::vector<alex::graph::uploadpass_command_t> upload_commands;
     std::vector<alex::graph::renderpass_command_t> geometry_pass_commands;
 
@@ -498,12 +563,13 @@ int main() {
     evaluate_info.renderpass_commands.emplace_back("geometry-pass",
                                                    geometry_pass_commands);
     graph.evaluate(evaluate_info);
+#endif
 
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
-    presentation_info.source_offset_end = vk::Offset3D{
-        static_cast<std::int32_t>(render_extent.width),
-        static_cast<std::int32_t>(render_extent.height), 1};
+    presentation_info.source_offset_end =
+        vk::Offset3D{static_cast<std::int32_t>(render_extent.width),
+                     static_cast<std::int32_t>(render_extent.height), 1};
 
     presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.destination_offset_end = vk::Offset3D{
@@ -516,8 +582,8 @@ int main() {
     presentation_info.image = final_images[next_frame_info.flightframe].image;
     presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
     presentation_info.queue = core.queue();
-//   presentation_info.commandbuffer =
-//       next_frame_info.presentation_commandbuffer;
+    //   presentation_info.commandbuffer =
+    //       next_frame_info.presentation_commandbuffer;
 
     presenter.present(presentation_info);
     deltaclock.tick();
