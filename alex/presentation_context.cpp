@@ -209,7 +209,7 @@ next_frame_info_t presenter_t::wait_for_next_frame(vk::Device device) {
   commandbuffer.reset();
 
   next_frame_info_t next_frame_info;
-  next_frame_info.presentation_commandbuffer = commandbuffer;
+  // next_frame_info.presentation_commandbuffer = commandbuffer;
   next_frame_info.flightframe = _sync.flightframe;
   return next_frame_info;
 }
@@ -217,6 +217,12 @@ next_frame_info_t presenter_t::wait_for_next_frame(vk::Device device) {
 // TODO: this goes into "presentation" job
 void presenter_t::present(presentation_info_t &info) {
 
+  vk::CommandBuffer commandbuffer =
+      _sync.commandbuffers[_sync.flightframe].get();
+
+  commandbuffer.reset();
+  auto begin_info = vk::CommandBufferBeginInfo{};
+  commandbuffer.begin(begin_info);
   {
     auto range = vk::ImageSubresourceRange{}
                      .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -235,10 +241,10 @@ void presenter_t::present(presentation_info_t &info) {
                        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
                        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
 
-    info.commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                                       vk::PipelineStageFlagBits::eTransfer,
-                                       vk::DependencyFlags(), nullptr, nullptr,
-                                       barrier);
+    commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                  vk::PipelineStageFlagBits::eTransfer,
+                                  vk::DependencyFlags(), nullptr, nullptr,
+                                  barrier);
   }
 
   {
@@ -259,10 +265,10 @@ void presenter_t::present(presentation_info_t &info) {
                        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
                        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
 
-    info.commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                                       vk::PipelineStageFlagBits::eTransfer,
-                                       vk::DependencyFlags(), nullptr, nullptr,
-                                       barrier);
+    commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                  vk::PipelineStageFlagBits::eTransfer,
+                                  vk::DependencyFlags(), nullptr, nullptr,
+                                  barrier);
   }
 
   auto src_subresource = vk::ImageSubresourceLayers{}
@@ -288,10 +294,10 @@ void presenter_t::present(presentation_info_t &info) {
                         .setDstOffsets(dst_offsets)
                         .setDstSubresource(dst_subresource);
 
-  info.commandbuffer.blitImage(info.image, vk::ImageLayout::eTransferSrcOptimal,
-                               _images[_sync.image_index],
-                               vk::ImageLayout::eTransferDstOptimal, image_blit,
-                               info.blit_filter);
+  commandbuffer.blitImage(info.image, vk::ImageLayout::eTransferSrcOptimal,
+                          _images[_sync.image_index],
+                          vk::ImageLayout::eTransferDstOptimal, image_blit,
+                          info.blit_filter);
 
   // Here we transfer the color attachment of the renderpass into
   // transfersrc so we can blit it to the swapchain
@@ -313,12 +319,12 @@ void presenter_t::present(presentation_info_t &info) {
           .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
           .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
 
-  info.commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                                     vk::PipelineStageFlagBits::eTransfer,
-                                     vk::DependencyFlags(), nullptr, nullptr,
-                                     to_present_barrier);
+  commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                vk::PipelineStageFlagBits::eTransfer,
+                                vk::DependencyFlags(), nullptr, nullptr,
+                                to_present_barrier);
 
-  info.commandbuffer.end();
+  commandbuffer.end();
   std::array<vk::Semaphore, 1> const wait_semaphores{
       _sync.image_available[_sync.flightframe].get()};
 
@@ -331,7 +337,7 @@ void presenter_t::present(presentation_info_t &info) {
   auto submit_info = vk::SubmitInfo{}
                          .setWaitSemaphores(wait_semaphores)
                          .setWaitDstStageMask(wait_dst_stage_masks)
-                         .setCommandBuffers({info.commandbuffer})
+                         .setCommandBuffers({commandbuffer})
                          .setSignalSemaphores(signal_semaphores);
 
   info.queue.submit(submit_info, _sync.in_flight[_sync.flightframe].get());

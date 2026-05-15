@@ -99,8 +99,9 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = surface;
   core_info.instance = context.instance();
-  core_info.render_extent.width = window_info.width;
-  core_info.render_extent.height = window_info.height;
+  vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 4),
+                             static_cast<std::int32_t>(window_info.height / 4),
+                             1);
 
   alex::core_t core(core_info);
 
@@ -234,9 +235,6 @@ int main() {
   /* ****************************************
    * Setup render graph
    */
-  vk::Extent3D render_extent(presenter.window_extent.width,
-                             presenter.window_extent.height, 1);
-
   auto graph_info = alex::graph::graph_info_t(
       core.physical_device(), core.device(), core.commandpool());
 
@@ -269,9 +267,9 @@ int main() {
 
   DeltaClock deltaclock;
 
-  float const camera_radius = 5.0f;
+  float const camera_radius = 4.0f;
   glm::vec3 const target(0.0, 0.0, 0);
-  OrbitCamera camera(target, 8.0f);
+  OrbitCamera camera(target, camera_radius);
 
   const float aspect = static_cast<float>(width) / static_cast<float>(height);
   const float near_plane = 1.0f, far_plane = 20.0f;
@@ -321,12 +319,12 @@ int main() {
   }
 
   struct buttons_t {
-  button_t w;
-  button_t a;
-  button_t s;
-  button_t d;
-  button_t e;
-  button_t q;
+    button_t w;
+    button_t a;
+    button_t s;
+    button_t d;
+    button_t e;
+    button_t q;
   } buttons;
 
   bool running = true;
@@ -418,9 +416,9 @@ int main() {
 
     // TODO: presentation context should not own a commandbuffer, you should own
     // it yourself
-    next_frame_info.presentation_commandbuffer.reset();
-    next_frame_info.presentation_commandbuffer.begin(
-        vk::CommandBufferBeginInfo{});
+ //  next_frame_info.presentation_commandbuffer.reset();
+ //  next_frame_info.presentation_commandbuffer.begin(
+ //      vk::CommandBufferBeginInfo{});
 
     std::vector<alex::graph::uploadpass_command_t> upload_commands;
     std::vector<alex::graph::renderpass_command_t> geometry_pass_commands;
@@ -459,13 +457,15 @@ int main() {
       draw_info.view = camera.view();
       draw_info.projection = projection;
       draw_info.model = transform->mat;
-      std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe]->memory_ptr(),
-                  &draw_info, sizeof(draw_info));
+      std::memcpy(
+          mesh->direct_uniforms[next_frame_info.flightframe]->memory_ptr(),
+          &draw_info, sizeof(draw_info));
 
       alex::graph::command::buffer_upload_t upload{
           .physical_device = core.physical_device(),
           .device = core.device(),
-          .direct_buffer = &mesh->direct_uniforms[next_frame_info.flightframe].value(),
+          .direct_buffer =
+              &mesh->direct_uniforms[next_frame_info.flightframe].value(),
           .buffer = &mesh->uniforms[next_frame_info.flightframe].value()};
 
       upload_commands.push_back(upload);
@@ -501,21 +501,23 @@ int main() {
 
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
-    presentation_info.source_offset_end = vk::Offset3D{width, height, 1};
+    presentation_info.source_offset_end = vk::Offset3D{
+        static_cast<std::int32_t>(render_extent.width),
+        static_cast<std::int32_t>(render_extent.height), 1};
 
     presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.destination_offset_end = vk::Offset3D{
         static_cast<std::int32_t>(presenter.window_extent.width),
         static_cast<std::int32_t>(presenter.window_extent.height), 1};
 
-    presentation_info.blit_filter = vk::Filter::eLinear;
+    presentation_info.blit_filter = vk::Filter::eNearest;
     std::span<alex::texture_t> final_images =
         graph.m_texture_storage.find("geom-color");
     presentation_info.image = final_images[next_frame_info.flightframe].image;
     presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
     presentation_info.queue = core.queue();
-    presentation_info.commandbuffer =
-        next_frame_info.presentation_commandbuffer;
+//   presentation_info.commandbuffer =
+//       next_frame_info.presentation_commandbuffer;
 
     presenter.present(presentation_info);
     deltaclock.tick();

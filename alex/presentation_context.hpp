@@ -17,7 +17,7 @@ struct presenter_info_t {
 };
 
 struct next_frame_info_t {
-  vk::CommandBuffer presentation_commandbuffer;
+  //vk::CommandBuffer presentation_commandbuffer;
   uint32_t flightframe{0};
 };
 
