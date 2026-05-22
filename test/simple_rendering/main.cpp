@@ -8,6 +8,9 @@
 #include <alex/presentation_context.hpp>
 #include <alex/texture_storage.hpp>
 
+#include <alex/task_graph.hpp>
+
+#include "alex/flightframe_array.hpp"
 #include "ecs.hpp"
 
 #include "../utility/deltaclock.hpp"
@@ -115,9 +118,6 @@ int main() {
           .setDescriptorCount(1000),
       vk::DescriptorPoolSize{}
           .setType(vk::DescriptorType::eSampledImage)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eStorageImage)
           .setDescriptorCount(1000),
       vk::DescriptorPoolSize{}
           .setType(vk::DescriptorType::eStorageImage)
@@ -248,12 +248,12 @@ int main() {
   colorattachment_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
   colorattachment_info.property_flags =
       vk::MemoryPropertyFlagBits::eDeviceLocal;
-
   colorattachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
                                vk::ImageUsageFlagBits::eTransferSrc |
-                               vk::ImageUsageFlagBits::eSampled;
+                               vk::ImageUsageFlagBits::eSampled |
+                               vk::ImageUsageFlagBits::eColorAttachment;
 
-  std::vector<alex::texture_t> colorattachments(alex::frames_in_flight);
+  alex::flightframe_array_t<alex::texture_t> colorattachments;
   for (alex::texture_t &attachment : colorattachments) {
     attachment.init(colorattachment_info);
   }
@@ -264,25 +264,38 @@ int main() {
   depthattachment_info.extent.setWidth(render_extent.width)
       .setHeight(render_extent.height);
 
-  depthattachment_info.format = vk::Format::eR8G8B8A8Srgb;
+  depthattachment_info.format = vk::Format::eD32Sfloat;
   depthattachment_info.tiling = vk::ImageTiling::eOptimal;
-  depthattachment_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
+  depthattachment_info.aspect_flags = vk::ImageAspectFlagBits::eDepth;
   depthattachment_info.property_flags =
       vk::MemoryPropertyFlagBits::eDeviceLocal;
 
   depthattachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
                                vk::ImageUsageFlagBits::eTransferSrc |
-                               vk::ImageUsageFlagBits::eSampled;
+                               vk::ImageUsageFlagBits::eSampled |
+                               vk::ImageUsageFlagBits::eDepthStencilAttachment;
 
-  std::vector<alex::texture_t> depthattachments(alex::frames_in_flight);
+  alex::flightframe_array_t<alex::texture_t> depthattachments;
   for (alex::texture_t &attachment : depthattachments) {
     attachment.init(depthattachment_info);
   }
 
+  alex::flightframe_array_t<vk::ImageView> colorattachment_views;
+  for (auto [i, view] : colorattachment_views | std::views::enumerate) {
+    view = colorattachments[i].view;
+  }
+
+  alex::flightframe_array_t<vk::ImageView> depthattachment_views;
+  for (auto [i, view] : depthattachment_views | std::views::enumerate) {
+    view = depthattachments[i].view;
+  }
+
   auto geometrypass_info = alex::graph::geometrypass_info_t(core.device())
+                               .set_color_attachments(colorattachment_views)
                                .set_color_format(vk::Format::eR8G8B8A8Srgb)
-                               .set_depth_format(vk::Format::eD32Sfloat)
                                .set_color_clearvalue(0.5f, 0.5f, 0.5f, 1.0f)
+                               .set_depth_format(vk::Format::eD32Sfloat)
+                               .set_depth_attachments(depthattachment_views)
                                .set_depth_clearvalue(1.0f)
                                .set_extent(render_extent)
                                .set_loadop(vk::AttachmentLoadOp::eClear);
@@ -378,14 +391,7 @@ int main() {
     auto time_ns = end_time - start_time;
     auto time =
         std::chrono::duration_cast<std::chrono::duration<double>>(time_ns);
-    std::println("=============================");
-    std::println("Initialization Info:");
-    std::println("Execution Time: {}", time);
-
-    std::println("Memory footprint:");
-    std::println("  Used {} bytes", init_arena.used_memory());
-    std::println("  Available {} bytes", init_arena.available_memory());
-    std::println("  Total {} bytes", init_arena.total_memory());
+    std::println("Initialization Time: {}", time);
   }
 
   struct buttons_t {
@@ -484,6 +490,32 @@ int main() {
     alex::next_frame_info_t next_frame_info =
         presenter.wait_for_next_frame(core.device());
 
+    auto geometry_task_id = alex2::task_id_t(0);
+    auto present_task_id = alex2::task_id_t(1);
+
+    auto graph = alex2::graph_t();
+
+    graph.add_task(geometry_task_id,
+                   std::make_unique<alex2::simple_task_t>(
+                       "geometry", [](vk::CommandBuffer commandbuffer) {
+                         std::println("Evaluated geometry task");
+                       }));
+
+    graph.add_task(present_task_id,
+                   std::make_unique<alex2::simple_task_t>(
+                       "present", [](vk::CommandBuffer commandbuffer) {
+                         std::println("Evaluated present task");
+                       }));
+
+    graph.add_dependency(
+        alex2::dependency_info_t{.device = core.device(),
+                                 .parent = geometry_task_id,
+                                 .child = present_task_id});
+
+    graph.set_end(present_task_id);
+    graph.evaluate({});
+	break;
+
 #if 0
     std::vector<alex::graph::uploadpass_command_t> upload_commands;
     std::vector<alex::graph::renderpass_command_t> geometry_pass_commands;
@@ -577,8 +609,12 @@ int main() {
         static_cast<std::int32_t>(presenter.window_extent.height), 1};
 
     presentation_info.blit_filter = vk::Filter::eNearest;
+#if 0
     std::span<alex::texture_t> final_images =
         graph.m_texture_storage.find("geom-color");
+#endif
+    std::span<alex::texture_t> final_images = colorattachments;
+
     presentation_info.image = final_images[next_frame_info.flightframe].image;
     presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
     presentation_info.queue = core.queue();
