@@ -51,11 +51,6 @@ std::size_t constexpr mb = 1'000'000;
 int main() {
   global::set_log_level(LogLevel::Info);
 
-  std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
-  std::array<component_mesh_t, max_entities> mesh_components;
-  std::array<component_transform_t, max_entities> transform_components;
-  ecs::manager_t manager(entity_memory, mesh_components, transform_components);
-
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
   alex::memory::arena init_arena(memory);
@@ -97,11 +92,15 @@ int main() {
 
   alex::context_t context(context_info);
 
-  VkSurfaceKHR surface;
-  SDL_Vulkan_CreateSurface(window, context.instance(), &surface);
+  vk::UniqueSurfaceKHR surface;
+  {
+    VkSurfaceKHR tmp;
+    SDL_Vulkan_CreateSurface(window, context.instance(), &tmp);
+    surface = vk::UniqueSurfaceKHR(vk::SurfaceKHR(tmp), context.instance());
+  }
 
   alex::core_info_t core_info;
-  core_info.surface = surface;
+  core_info.surface = surface.get();
   core_info.instance = context.instance();
   vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 4),
                              static_cast<std::int32_t>(window_info.height / 4),
@@ -109,6 +108,7 @@ int main() {
 
   alex::core_t core(core_info);
 
+#if 0  
   std::vector<vk::DescriptorPoolSize> pool_sizes{
       vk::DescriptorPoolSize{}
           .setType(vk::DescriptorType::eSampler)
@@ -153,6 +153,7 @@ int main() {
 
   vk::UniqueDescriptorPool descriptor_pool =
       core.create_descriptorpool(pool_info);
+#endif
 
   /* ****************************************
    * Create DescriptorSet Layout for geometry pipeline
@@ -174,17 +175,22 @@ int main() {
           .setFlags(vk::DescriptorSetLayoutCreateFlags())
           .setBindings(frame_uniform_bindings);
 
-  vk::DescriptorSetLayout geometry_pipeline_info_setlayout =
-      core.device().createDescriptorSetLayout(uniform_setinfo, nullptr);
+  vk::UniqueDescriptorSetLayout geometry_pipeline_info_setlayout =
+      core.device().createDescriptorSetLayoutUnique(uniform_setinfo, nullptr);
 
   /* ****************************************
    * Setup our meshes
    */
 
+  std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
+  std::array<component_mesh_t, max_entities> mesh_components;
+  std::array<component_transform_t, max_entities> transform_components;
+  ecs::manager_t manager(entity_memory, mesh_components, transform_components);
+
   cube_prefab_info_t cube_prefab_info;
   cube_prefab_info.manager = &manager;
   cube_prefab_info.core = &core;
-  cube_prefab_info.set_layout = geometry_pipeline_info_setlayout;
+  cube_prefab_info.set_layout = geometry_pipeline_info_setlayout.get();
   cube_prefab_info.arena = &init_arena;
   cube_prefab_info.r = 1.0f;
   cube_prefab_info.g = 0.0f;
@@ -227,7 +233,7 @@ int main() {
   presenter_info.physical_device = core.physical_device();
   presenter_info.device = core.device();
   presenter_info.commandpool = core.commandpool();
-  presenter_info.surface = surface;
+  presenter_info.surface = surface.get();
   presenter_info.enable_vsync = false;
   presenter_info.window_extent.width = width;
   presenter_info.window_extent.height = height;
@@ -253,9 +259,10 @@ int main() {
                                vk::ImageUsageFlagBits::eSampled |
                                vk::ImageUsageFlagBits::eColorAttachment;
 
-  alex::flightframe_array_t<alex::texture_t> colorattachments;
-  for (alex::texture_t &attachment : colorattachments) {
-    attachment.init(colorattachment_info);
+  std::vector<alex::texture_t> colorattachments;
+  for (auto _ :
+       std::views::iota(0) | std::views::take(alex::frames_in_flight)) {
+    colorattachments.emplace_back(colorattachment_info);
   }
 
   alex::texture_info_t depthattachment_info;
@@ -275,19 +282,20 @@ int main() {
                                vk::ImageUsageFlagBits::eSampled |
                                vk::ImageUsageFlagBits::eDepthStencilAttachment;
 
-  alex::flightframe_array_t<alex::texture_t> depthattachments;
-  for (alex::texture_t &attachment : depthattachments) {
-    attachment.init(depthattachment_info);
+  std::vector<alex::texture_t> depthattachments;
+  for (auto _ :
+       std::views::iota(0) | std::views::take(alex::frames_in_flight)) {
+    depthattachments.emplace_back(depthattachment_info);
   }
 
   alex::flightframe_array_t<vk::ImageView> colorattachment_views;
   for (auto [i, view] : colorattachment_views | std::views::enumerate) {
-    view = colorattachments[i].view;
+    view = colorattachments[i].view();
   }
 
   alex::flightframe_array_t<vk::ImageView> depthattachment_views;
   for (auto [i, view] : depthattachment_views | std::views::enumerate) {
-    view = depthattachments[i].view;
+    view = depthattachments[i].view();
   }
 
   auto geometrypass_info = alex::graph::geometrypass_info_t(core.device())
@@ -305,10 +313,10 @@ int main() {
   auto geometry_pipeline_info =
       alex::graph::pipeline_info_t(core.device())
           .set_extent(render_extent)
-          .set_renderpass(geometry_pass.renderpass)
+          .set_renderpass(geometry_pass.renderpass())
           .set_vertex_program_path("./geometry.vert.spv")
           .set_fragment_program_path("./geometry.frag.spv")
-          .add_setlayout(geometry_pipeline_info_setlayout);
+          .add_setlayout(geometry_pipeline_info_setlayout.get());
 
   alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
@@ -370,6 +378,11 @@ int main() {
   alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
 #endif
+
+  alex::flightframe_array_t<vk::UniqueSemaphore> taskgraph_semaphores;
+  for (vk::UniqueSemaphore &semaphore : taskgraph_semaphores) {
+    semaphore = core.create_semaphore();
+  }
 
   DeltaClock deltaclock;
 
@@ -490,31 +503,149 @@ int main() {
     alex::next_frame_info_t next_frame_info =
         presenter.wait_for_next_frame(core.device());
 
-    auto geometry_task_id = alex2::task_id_t(0);
-    auto present_task_id = alex2::task_id_t(1);
+    auto upload_task_id = alex2::task_id_t(0);
+    auto geometry_task_id = alex2::task_id_t(1);
+    auto present_task_id = alex2::task_id_t(2);
 
     auto graph = alex2::graph_t();
 
-    graph.add_task(geometry_task_id,
-                   std::make_unique<alex2::simple_task_t>(
-                       "geometry", [](vk::CommandBuffer commandbuffer) {
-                         std::println("Evaluated geometry task");
-                       }));
+    graph.add_task(
+        upload_task_id,
+        std::make_unique<alex2::simple_task_t>(
+            "upload", [&](vk::CommandBuffer commandbuffer) {
+              std::array<ecs::entity_id_t, max_entities> entities;
+              std::size_t entity_count = manager.get_entities(entities);
+              entity_count = manager.filter_inplace<component_mesh_t>(
+                  std::span(entities).subspan(0, entity_count));
+              entity_count = manager.filter_inplace<component_transform_t>(
+                  std::span(entities).subspan(0, entity_count));
+
+              for (ecs::entity_id_t entity :
+                   entities | std::views::take(entity_count)) {
+                auto *mesh = manager.get_component<component_mesh_t>(entity);
+                auto *transform =
+                    manager.get_component<component_transform_t>(entity);
+
+                draw_info_t draw_info;
+                draw_info.view = camera.view();
+                draw_info.projection = projection;
+                draw_info.model = transform->mat;
+                std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe]
+                                ->memory_ptr(),
+                            &draw_info, sizeof(draw_info));
+
+                alex::memory_buffer_write_info_t write_info;
+                write_info.physical_device = core.physical_device();
+                write_info.device = core.device();
+                write_info.direct =
+                    &mesh->direct_uniforms[next_frame_info.flightframe].value();
+                write_info.write_size =
+                    mesh->uniforms[next_frame_info.flightframe]->memory_size();
+                write_info.commandbuffer = commandbuffer;
+                mesh->uniforms[next_frame_info.flightframe]->record_write(
+                    write_info);
+              }
+
+              std::println("Recorded upload task");
+            }));
+
+    graph.add_task(
+        geometry_task_id,
+        std::make_unique<alex2::simple_task_t>(
+            "geometry", [&](vk::CommandBuffer commandbuffer) {
+              const auto render_area =
+                  vk::Rect2D{}
+                      .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
+                      .setExtent(vk::Extent2D(render_extent.width,
+                                              render_extent.height));
+
+              auto clearvalues = geometry_pass.clearvalues();
+
+              const auto renderpass_begin_info =
+                  vk::RenderPassBeginInfo{}
+                      .setRenderPass(geometry_pass.renderpass())
+                      .setFramebuffer(geometry_pass.framebuffer(
+                          next_frame_info.flightframe))
+                      .setRenderArea(render_area)
+                      .setClearValues(clearvalues);
+
+              commandbuffer.beginRenderPass(renderpass_begin_info,
+                                            vk::SubpassContents::eInline);
+
+              auto viewport =
+                  vk::Viewport{}
+                      .setX(0)
+                      .setY(0)
+                      .setWidth(static_cast<float>(render_extent.width))
+                      .setHeight(static_cast<float>(render_extent.height))
+                      .setMinDepth(0.0f)
+                      .setMaxDepth(1.0f);
+
+              auto scissor = vk::Rect2D{}.setOffset({0, 0}).setExtent(
+                  {render_extent.width, render_extent.height});
+
+              commandbuffer.setViewport(0, viewport);
+              commandbuffer.setScissor(0, scissor);
+              commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                         geometry_pipeline.pipeline());
+
+              std::array<ecs::entity_id_t, max_entities> entities;
+              std::size_t entity_count = manager.get_entities(entities);
+              entity_count = manager.filter_inplace<component_mesh_t>(
+                  std::span(entities).subspan(0, entity_count));
+              entity_count = manager.filter_inplace<component_transform_t>(
+                  std::span(entities).subspan(0, entity_count));
+
+              for (ecs::entity_id_t entity :
+                   entities | std::views::take(entity_count)) {
+                auto *mesh = manager.get_component<component_mesh_t>(entity);
+                auto *transform =
+                    manager.get_component<component_transform_t>(entity);
+
+                vk::DescriptorSet set =
+                    mesh->descriptorsets->get_set(next_frame_info.flightframe);
+
+                commandbuffer.bindDescriptorSets(
+                    vk::PipelineBindPoint::eGraphics,
+                    geometry_pipeline.layout(), 0, 1, &set, 0, nullptr);
+
+                std::vector<vk::DeviceSize> offsets = {0};
+                std::vector<vk::Buffer> buffers = {mesh->vertices->buffer()};
+                commandbuffer.bindVertexBuffers(0, 1, buffers.data(),
+                                                offsets.data());
+
+                commandbuffer.draw(mesh->vertices_length, 1, 0, 0);
+              }
+
+              commandbuffer.endRenderPass();
+              std::println("Recorded geometry task");
+            }));
 
     graph.add_task(present_task_id,
                    std::make_unique<alex2::simple_task_t>(
                        "present", [](vk::CommandBuffer commandbuffer) {
-                         std::println("Evaluated present task");
+                         std::println("Recorded present task");
                        }));
 
-    graph.add_dependency(
-        alex2::dependency_info_t{.device = core.device(),
-                                 .parent = geometry_task_id,
-                                 .child = present_task_id});
+    graph.add_dependency(alex2::dependency_info_t{.device = core.device(),
+                                                  .parent = upload_task_id,
+                                                  .child = geometry_task_id});
+
+    graph.add_dependency(alex2::dependency_info_t{.device = core.device(),
+                                                  .parent = geometry_task_id,
+                                                  .child = present_task_id});
 
     graph.set_end(present_task_id);
-    graph.evaluate({});
-	break;
+
+    vk::Semaphore graph_finished_semaphore =
+        taskgraph_semaphores[next_frame_info.flightframe].get();
+
+    auto graph_evaluate_info = alex2::graph_evaluate_info_t{};
+    graph_evaluate_info.device = core.device();
+    graph_evaluate_info.commandpool = core.commandpool();
+    graph_evaluate_info.queue = core.queue();
+    graph_evaluate_info.sync_semaphore = graph_finished_semaphore;
+    graph.evaluate(graph_evaluate_info);
 
 #if 0
     std::vector<alex::graph::uploadpass_command_t> upload_commands;
@@ -609,15 +740,12 @@ int main() {
         static_cast<std::int32_t>(presenter.window_extent.height), 1};
 
     presentation_info.blit_filter = vk::Filter::eNearest;
-#if 0
-    std::span<alex::texture_t> final_images =
-        graph.m_texture_storage.find("geom-color");
-#endif
-    std::span<alex::texture_t> final_images = colorattachments;
-
-    presentation_info.image = final_images[next_frame_info.flightframe].image;
+    presentation_info.image =
+        colorattachments[next_frame_info.flightframe].image();
     presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
     presentation_info.queue = core.queue();
+    presentation_info.wait_semaphore = graph_finished_semaphore;
+
     //   presentation_info.commandbuffer =
     //       next_frame_info.presentation_commandbuffer;
 
@@ -625,11 +753,9 @@ int main() {
     deltaclock.tick();
   }
 
-  std::println("Shutdown Memory footprint:");
-  std::println("  Used {} bytes", init_arena.used_memory());
-  std::println("  Available {} bytes", init_arena.available_memory());
-  std::println("  Total {} bytes", init_arena.total_memory());
   core.device().waitIdle();
+  SDL_DestroyWindow(window);
+  SDL_Quit();
 
   return 0;
 }

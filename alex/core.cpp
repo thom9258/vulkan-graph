@@ -256,4 +256,8 @@ auto core_t::create_fence() -> vk::UniqueFence {
   return device().createFenceUnique(vk::FenceCreateInfo{});
 }
 
+auto core_t::create_semaphore() -> vk::UniqueSemaphore {
+  return device().createSemaphoreUnique(vk::SemaphoreCreateInfo{});
+}
+
 } // namespace alex

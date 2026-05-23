@@ -16,13 +16,18 @@ struct texture_info_t {
   vk::ImageUsageFlags usage;
 };
 
-struct texture_t {
-  vk::Image image;
-  vk::ImageView view;
-  vk::DeviceMemory memory;
+class texture_t {
+public:
+  texture_t() = default;
+  explicit texture_t(texture_info_t &info);
+  auto memory() -> vk::DeviceMemory;
+  auto view() -> vk::ImageView;
+  auto image() -> vk::Image;
 
-  void init(texture_info_t& info);
-  void cleanup(vk::Device device);
+private:
+  vk::UniqueImage _image;
+  vk::UniqueImageView _view;
+  vk::UniqueDeviceMemory _memory;
 };
 
 } // namespace alex

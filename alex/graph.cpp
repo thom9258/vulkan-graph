@@ -1,3 +1,5 @@
+#if 0
+
 #include "graph.hpp"
 #include "arena.hpp"
 #include "core.hpp"
@@ -782,3 +784,5 @@ void graph_t::evaluate(evaluate_info_t &info) {
 }
 
 } // namespace alex::graph
+
+#endif

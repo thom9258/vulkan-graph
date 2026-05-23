@@ -325,14 +325,15 @@ void presenter_t::present(presentation_info_t &info) {
                                 to_present_barrier);
 
   commandbuffer.end();
-  std::array<vk::Semaphore, 1> const wait_semaphores{
-      _sync.image_available[_sync.flightframe].get()};
+  std::array<vk::Semaphore, 2> const wait_semaphores{
+      _sync.image_available[_sync.flightframe].get(), info.wait_semaphore};
+
+  std::array<vk::PipelineStageFlags, 2> const wait_dst_stage_masks{
+      vk::PipelineStageFlagBits::eColorAttachmentOutput,
+      vk::PipelineStageFlagBits::eTopOfPipe};
 
   std::array<vk::Semaphore, 1> const signal_semaphores{
       _sync.render_finished[_sync.image_index].get()};
-
-  std::array<vk::PipelineStageFlags, 1> const wait_dst_stage_masks{
-      vk::PipelineStageFlagBits::eColorAttachmentOutput};
 
   auto submit_info = vk::SubmitInfo{}
                          .setWaitSemaphores(wait_semaphores)

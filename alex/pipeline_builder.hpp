@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core.hpp"
 #include "arena.hpp"
+#include "core.hpp"
 
 #include <filesystem>
 
@@ -9,11 +9,11 @@ namespace alex::graph {
 
 struct pipeline_info_t {
   pipeline_info_t(vk::Device device);
-  pipeline_info_t& set_extent(vk::Extent3D extent);
-  pipeline_info_t& set_renderpass(vk::RenderPass renderpass);
-  pipeline_info_t& set_vertex_program_path(std::filesystem::path path);
-  pipeline_info_t& set_fragment_program_path(std::filesystem::path path);
-  pipeline_info_t& add_setlayout(vk::DescriptorSetLayout setlayout);
+  pipeline_info_t &set_extent(vk::Extent3D extent);
+  pipeline_info_t &set_renderpass(vk::RenderPass renderpass);
+  pipeline_info_t &set_vertex_program_path(std::filesystem::path path);
+  pipeline_info_t &set_fragment_program_path(std::filesystem::path path);
+  pipeline_info_t &add_setlayout(vk::DescriptorSetLayout setlayout);
 
   vk::Device device;
   vk::Extent3D extent;
@@ -26,11 +26,16 @@ struct pipeline_info_t {
   std::vector<vk::DescriptorSetLayout> setlayouts;
 };
 
-struct pipeline_t {
-  pipeline_t(pipeline_info_t& info, memory::arena &arena);
+class pipeline_t {
+public:
+  pipeline_t(pipeline_info_t &info, memory::arena &arena);
 
-  vk::PipelineLayout layout;
-  vk::Pipeline pipeline;
+  auto layout() -> vk::PipelineLayout;
+  auto pipeline() -> vk::Pipeline;
+
+private:
+  vk::UniquePipelineLayout _layout;
+  vk::UniquePipeline _pipeline;
 };
 
-}
+} // namespace alex::graph

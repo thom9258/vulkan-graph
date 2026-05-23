@@ -2,10 +2,11 @@
 #include "find_memory_type.hpp"
 #include <vulkan/vulkan_enums.hpp>
 
+#include <print>
+
 namespace alex {
 
-void texture_t::init(texture_info_t& info)
-{
+texture_t::texture_t(texture_info_t &info) {
   const auto imageCreateInfo =
       vk::ImageCreateInfo{}
           .setImageType(vk::ImageType::e2D)
@@ -19,13 +20,13 @@ void texture_t::init(texture_info_t& info)
           .setSharingMode(vk::SharingMode::eExclusive)
           .setSamples(vk::SampleCountFlagBits::e1);
 
-  image = info.device.createImage(imageCreateInfo);
+  _image = info.device.createImageUnique(imageCreateInfo);
 
   vk::PhysicalDeviceMemoryProperties memProperties =
       info.physical_device.getMemoryProperties();
 
   vk::MemoryRequirements memRequirements =
-      info.device.getImageMemoryRequirements(image);
+      info.device.getImageMemoryRequirements(_image.get());
 
   const auto memoryTypeIndex = find_memory_type(
       memProperties, memRequirements.memoryTypeBits, info.property_flags);
@@ -33,9 +34,9 @@ void texture_t::init(texture_info_t& info)
   auto allocInfo = vk::MemoryAllocateInfo{}
                        .setAllocationSize(memRequirements.size)
                        .setMemoryTypeIndex(memoryTypeIndex);
-  memory = info.device.allocateMemory(allocInfo, nullptr);
+  _memory = info.device.allocateMemoryUnique(allocInfo, nullptr);
 
-  info.device.bindImageMemory(image, memory, 0);
+  info.device.bindImageMemory(_image.get(), _memory.get(), 0);
 
   auto subresourceRange = vk::ImageSubresourceRange{}
                               .setAspectMask(info.aspect_flags)
@@ -55,14 +56,13 @@ void texture_t::init(texture_info_t& info)
                                  .setViewType(vk::ImageViewType::e2D)
                                  .setFormat(info.format)
                                  .setComponents(componentMapping)
-                                 .setImage(image);
+                                 .setImage(_image.get());
 
-  view = info.device.createImageView(imageViewCreateInfo);
+  _view = info.device.createImageViewUnique(imageViewCreateInfo);
 }
 
-void texture_t::cleanup(vk::Device device) {
-  device.destroyImage(image);
-  device.freeMemory(memory);
-}
+auto texture_t::memory() -> vk::DeviceMemory { return _memory.get(); }
+auto texture_t::view() -> vk::ImageView { return _view.get(); }
+auto texture_t::image() -> vk::Image { return _image.get(); }
 
 } // namespace alex

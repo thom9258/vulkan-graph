@@ -59,21 +59,21 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
           .setFlags(vk::ShaderModuleCreateFlags())
           .setCode(fragment_source);
 
-  vk::ShaderModule vertex_module =
-      info.device.createShaderModule(vertexShaderModuleCreateInfo);
-  vk::ShaderModule fragment_module =
-      info.device.createShaderModule(fragmentShaderModuleCreateInfo);
+  vk::UniqueShaderModule vertex_module =
+      info.device.createShaderModuleUnique(vertexShaderModuleCreateInfo);
+  vk::UniqueShaderModule fragment_module =
+      info.device.createShaderModuleUnique(fragmentShaderModuleCreateInfo);
 
   std::array<vk::PipelineShaderStageCreateInfo, 2> shaderstage_infos{
       vk::PipelineShaderStageCreateInfo{}
           .setStage(vk::ShaderStageFlagBits::eVertex)
           .setFlags(vk::PipelineShaderStageCreateFlags())
-          .setModule(vertex_module)
+          .setModule(vertex_module.get())
           .setPName("main"),
       vk::PipelineShaderStageCreateInfo{}
           .setStage(vk::ShaderStageFlagBits::eFragment)
           .setFlags(vk::PipelineShaderStageCreateFlags())
-          .setModule(fragment_module)
+          .setModule(fragment_module.get())
           .setPName("main")};
 
   std::array<vk::DynamicState, 2> const dynamic_states{
@@ -195,7 +195,7 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
                                       .setFlags(vk::PipelineLayoutCreateFlags())
                                       .setSetLayouts(info.setlayouts);
 
-  layout = info.device.createPipelineLayout(pipelineLayoutCreateInfo);
+  _layout = info.device.createPipelineLayoutUnique(pipelineLayoutCreateInfo);
 
   auto depth_stencil_state_info = vk::PipelineDepthStencilStateCreateInfo{}
                                       .setDepthTestEnable(true)
@@ -219,15 +219,19 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
           .setPDepthStencilState(&depth_stencil_state_info)
           .setPColorBlendState(&pipelineColorBlendStateCreateInfo)
           .setPDynamicState(&pipelineDynamicStateCreateInfo)
-          .setLayout(layout)
+          .setLayout(_layout.get())
           .setRenderPass(info.renderpass);
 
-  vk::ResultValue<vk::Pipeline> result =
-      info.device.createGraphicsPipeline(nullptr, graphicsPipelineCreateInfo);
+  vk::ResultValue<vk::UniquePipeline> result =
+      info.device.createGraphicsPipelineUnique(nullptr,
+                                               graphicsPipelineCreateInfo);
 
   ENSURE(result.result == vk::Result::eSuccess,
          "Could not create graphics pipeline")
-  pipeline = result.value;
+  _pipeline = std::move(result.value);
 }
+
+auto pipeline_t::layout() -> vk::PipelineLayout { return _layout.get(); }
+auto pipeline_t::pipeline() -> vk::Pipeline { return _pipeline.get(); }
 
 } // namespace alex::graph

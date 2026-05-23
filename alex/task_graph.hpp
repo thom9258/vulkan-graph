@@ -80,6 +80,14 @@ private:
   fn_t _fn;
 };
 
+struct graph_evaluate_info_t {
+  vk::Device device;
+  vk::CommandPool commandpool;
+  vk::Queue queue;
+  std::optional<vk::Semaphore> sync_semaphore;
+  std::optional<vk::Fence> sync_fence;
+};
+
 class graph_t {
 
   class dependency_t {
@@ -114,6 +122,7 @@ class graph_t {
   private:
     task_id_t _id;
     std::unique_ptr<task_t> _task;
+    vk::UniqueCommandBuffer _commandbuffer;
   };
 
 public:
@@ -138,14 +147,14 @@ public:
     _dependencies.push_back(std::make_unique<dependency_t>(info));
   }
 
-  constexpr auto get_dependencies_for_child(task_id_t child)
+  constexpr auto get_parent_dependencies(task_id_t task)
       -> std::vector<dependency_t *> {
     auto const is_parent =
         [&](std::unique_ptr<dependency_t> &dependency) -> bool {
       if (dependency == nullptr) {
         return false;
       }
-      return dependency->child() == child;
+      return dependency->child() == task;
     };
     auto const get_dependency =
         [](std::unique_ptr<dependency_t> &dependency) -> dependency_t * {
@@ -157,11 +166,41 @@ public:
            std::ranges::to<std::vector>();
   }
 
-  constexpr auto evaluate(vk::Semaphore signal) -> void {
+  constexpr auto get_children_dependencies(task_id_t task)
+      -> std::vector<dependency_t *> {
+    auto const is_child =
+        [&](std::unique_ptr<dependency_t> &dependency) -> bool {
+      if (dependency == nullptr) {
+        return false;
+      }
+      return dependency->parent() == task;
+    };
 
+    auto const get_dependency =
+        [](std::unique_ptr<dependency_t> &dependency) -> dependency_t * {
+      return dependency.get();
+    };
+
+    return _dependencies | std::views::filter(is_child) |
+           std::views::transform(get_dependency) |
+           std::ranges::to<std::vector>();
+  }
+
+  constexpr auto evaluate(graph_evaluate_info_t &info) -> void {
     if (!_ending_task_id.valid()) {
       return;
     }
+
+    auto commandbuffer_alloc_info =
+        vk::CommandBufferAllocateInfo{}
+            .setCommandPool(info.commandpool)
+            .setLevel(vk::CommandBufferLevel::ePrimary)
+            .setCommandBufferCount(_jobs.size());
+
+    _commandbuffers =
+        info.device.allocateCommandBuffersUnique(commandbuffer_alloc_info);
+
+    std::size_t next_commandbuffer{0};
 
     auto const recursive_eval = [&](auto &self, job_t *job) -> void {
       if (job == nullptr) {
@@ -169,13 +208,53 @@ public:
       }
 
       std::vector<dependency_t *> const parent_dependencies =
-          get_dependencies_for_child(job->id());
+          get_parent_dependencies(job->id());
+
+      std::vector<dependency_t *> const children_dependencies =
+          get_children_dependencies(job->id());
 
       for (dependency_t *dependency : parent_dependencies) {
         self(self, get_job(dependency->parent()));
       }
 
-      job->task()->evaluate({});
+      vk::CommandBuffer commandbuffer =
+          _commandbuffers[next_commandbuffer].get();
+
+      commandbuffer.begin(vk::CommandBufferBeginInfo{});
+      job->task()->evaluate(commandbuffer);
+      commandbuffer.end();
+
+      // TODO: This must be deduced by dependencies, they have to specify what
+      // type of dependency they are and they correspond to wait dst stage
+      // masks TopOfPipe is not a good solution!
+      // So basically each dependency has a mask for itself, and it will then
+      // wait for all masks before computing
+      std::vector<vk::Semaphore> wait_semaphores;
+      std::vector<vk::PipelineStageFlags> wait_dst_stage_masks;
+      for (dependency_t *dependency : parent_dependencies) {
+        wait_semaphores.push_back(dependency->semaphore());
+        wait_dst_stage_masks.push_back(vk::PipelineStageFlagBits::eTopOfPipe);
+      }
+
+      std::vector<vk::Semaphore> signal_semaphores;
+      for (dependency_t *dependency : children_dependencies) {
+        signal_semaphores.push_back(dependency->semaphore());
+      }
+
+      if (info.sync_semaphore.has_value()) {
+        if (job->id() == _ending_task_id) {
+          signal_semaphores.push_back(info.sync_semaphore.value());
+        }
+      }
+
+      auto submit_info = vk::SubmitInfo{}
+                             .setCommandBuffers(commandbuffer)
+                             .setWaitSemaphores(wait_semaphores)
+                             .setWaitDstStageMask(wait_dst_stage_masks)
+                             .setSignalSemaphores(signal_semaphores);
+
+      info.queue.submit(submit_info);
+      next_commandbuffer++;
     };
 
     recursive_eval(recursive_eval, get_job(_ending_task_id));
@@ -184,6 +263,7 @@ public:
 private:
   std::vector<job_t> _jobs;
   std::vector<std::unique_ptr<dependency_t>> _dependencies;
+  std::vector<vk::UniqueCommandBuffer> _commandbuffers;
   task_id_t _ending_task_id;
 };
 

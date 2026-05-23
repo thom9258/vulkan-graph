@@ -11,6 +11,7 @@
 struct component_mesh_t {
   std::optional<alex::memory_buffer_t> vertices;
   std::uint32_t vertices_length;
+  vk::UniqueDescriptorPool uniform_descriptor_pool;
   alex::flightframe_array_t<std::optional<alex::direct_memory_buffer_t>> direct_uniforms;
   alex::flightframe_array_t<std::optional<alex::memory_buffer_t>> uniforms;
   std::optional<alex::uniform_descriptorsets_t> descriptorsets;

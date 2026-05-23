@@ -4,6 +4,7 @@
 #include <alex/core.hpp>
 #include <alex/drawing.hpp>
 #include <alex/ensure.hpp>
+#include <vulkan/vulkan_enums.hpp>
 
 #include "alex/uniform_descriptorsets.hpp"
 #include "draw_info_uniform.hpp"
@@ -100,17 +101,20 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
             vk::DescriptorType::eUniformBuffer)};
 
     auto pool_create_info =
-        vk::DescriptorPoolCreateInfo{}.setPoolSizes(pool_sizes).setMaxSets(4);
+        vk::DescriptorPoolCreateInfo{}
+            .setPoolSizes(pool_sizes)
+            .setMaxSets(4)
+            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
 
-    vk::DescriptorPool descriptor_pool =
-        info.core->device().createDescriptorPool(pool_create_info);
+    mesh->uniform_descriptor_pool =
+        info.core->device().createDescriptorPoolUnique(pool_create_info);
 
     alex::uniform_descriptorsets_info_t cube_descriptorsets_info;
     cube_descriptorsets_info.physical_device = info.core->physical_device();
     cube_descriptorsets_info.device = info.core->device();
     cube_descriptorsets_info.set_count = 2;
     cube_descriptorsets_info.layout = info.set_layout;
-    cube_descriptorsets_info.pool = descriptor_pool;
+    cube_descriptorsets_info.pool = mesh->uniform_descriptor_pool.get();
 
     mesh->descriptorsets.emplace(cube_descriptorsets_info);
     for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {

@@ -34,6 +34,7 @@ struct presentation_info_t {
   vk::ImageLayout layout;
   vk::Queue queue;
   vk::CommandBuffer commandbuffer;
+  vk::Semaphore wait_semaphore;
 };
 
 struct presenter_t {
