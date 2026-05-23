@@ -301,7 +301,7 @@ int main() {
   auto geometrypass_info = alex::graph::geometrypass_info_t(core.device())
                                .set_color_attachments(colorattachment_views)
                                .set_color_format(vk::Format::eR8G8B8A8Srgb)
-                               .set_color_clearvalue(0.5f, 0.5f, 0.5f, 1.0f)
+                               .set_color_clearvalue(0.1f, 0.1f, 0.1f, 1.0f)
                                .set_depth_format(vk::Format::eD32Sfloat)
                                .set_depth_attachments(depthattachment_views)
                                .set_depth_clearvalue(1.0f)
@@ -320,69 +320,12 @@ int main() {
 
   alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
-#if 0
-  /* ****************************************
-   * Setup render graph
-   */
-  auto graph_info = alex::graph::graph_info_t(
-      core.physical_device(), core.device(), core.commandpool());
-
-  graph_info.add_attachment("geom-color", alex::graph::attachment_type_t::color)
-      .set_format(vk::Format::eR8G8B8A8Srgb)
-      .set_extent(render_extent)
-      .set_aspect_flags(vk::ImageAspectFlagBits::eColor);
-
-  graph_info.add_attachment("geom-depth", alex::graph::attachment_type_t::depth)
-      .set_format(vk::Format::eD32Sfloat)
-      .set_extent(render_extent)
-      .set_aspect_flags(vk::ImageAspectFlagBits::eDepth);
-
-  graph_info.add_framepass("geometry-pass")
-      .add_dependency("upload")
-      .set_color_attachment("geom-color")
-      .set_depth_attachment("geom-depth")
-      .set_extent(render_extent)
-      .set_vertex_program_path("./geometry.vert.spv")
-      .set_fragment_program_path("./geometry.frag.spv");
-
-  graph_info.add_uploadpass("upload");
-
-  alex::graph::graph_t graph(graph_info);
-  std::println("======================");
-  graph.print_execution_order(std::cout);
-  std::println("======================");
-  graph.print_graphviz(std::cout);
-  std::println("======================");
-  
-  /* ****************************************
-   * Pipeline Setup using the created graph renderpasses
-   */
-
-  alex::graph::node_t *geometry_renderpass_node =
-      graph.find_node("geometry-pass");
-  ENSURE(geometry_renderpass_node != nullptr, "could not find geometry-pass")
-
-  alex::graph::renderpass_node_t *geometry_renderpass =
-      std::get_if<alex::graph::renderpass_node_t>(geometry_renderpass_node);
-
-  ENSURE(geometry_renderpass != nullptr, "could not find geometry-pass")
-
-  auto geometry_pipeline_info =
-      alex::graph::pipeline_info_t(core.device())
-          .set_extent(render_extent)
-          .set_renderpass(geometry_renderpass->geometry_pass.renderpass)
-          .set_vertex_program_path("./geometry.vert.spv")
-          .set_fragment_program_path("./geometry.frag.spv")
-          .add_setlayout(geometry_pipeline_info_setlayout);
-
-  alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
-
-#endif
-
   alex::flightframe_array_t<vk::UniqueSemaphore> taskgraph_semaphores;
   for (vk::UniqueSemaphore &semaphore : taskgraph_semaphores) {
     semaphore = core.create_semaphore();
   }
+
+  alex::flightframe_array_t<alex2::graph_t> taskgraphs;
 
   DeltaClock deltaclock;
 
@@ -507,7 +450,8 @@ int main() {
     auto geometry_task_id = alex2::task_id_t(1);
     auto present_task_id = alex2::task_id_t(2);
 
-    auto graph = alex2::graph_t();
+    taskgraphs[next_frame_info.flightframe] = alex2::graph_t();
+    alex2::graph_t &graph = taskgraphs[next_frame_info.flightframe];
 
     graph.add_task(
         upload_task_id,
@@ -545,8 +489,6 @@ int main() {
                 mesh->uniforms[next_frame_info.flightframe]->record_write(
                     write_info);
               }
-
-              std::println("Recorded upload task");
             }));
 
     graph.add_task(
@@ -618,14 +560,11 @@ int main() {
               }
 
               commandbuffer.endRenderPass();
-              std::println("Recorded geometry task");
             }));
 
     graph.add_task(present_task_id,
                    std::make_unique<alex2::simple_task_t>(
-                       "present", [](vk::CommandBuffer commandbuffer) {
-                         std::println("Recorded present task");
-                       }));
+                       "present", [](vk::CommandBuffer commandbuffer) {}));
 
     graph.add_dependency(alex2::dependency_info_t{.device = core.device(),
                                                   .parent = upload_task_id,
@@ -647,87 +586,6 @@ int main() {
     graph_evaluate_info.sync_semaphore = graph_finished_semaphore;
     graph.evaluate(graph_evaluate_info);
 
-#if 0
-    std::vector<alex::graph::uploadpass_command_t> upload_commands;
-    std::vector<alex::graph::renderpass_command_t> geometry_pass_commands;
-
-    alex::graph::command::set_viewport_t viewport{
-        .x = 0.0f,
-        .y = 0.0f,
-        .w = static_cast<float>(render_extent.width),
-        .h = static_cast<float>(render_extent.height)};
-
-    alex::graph::command::set_scissor_t scissor{
-        .offset = {0, 0},
-        .extent = {render_extent.width, render_extent.height}};
-
-    alex::graph::command::bind_pipeline_t bind_pipeline{
-        .pipeline = geometry_pipeline.pipeline};
-
-    geometry_pass_commands.push_back(viewport);
-    geometry_pass_commands.push_back(scissor);
-    geometry_pass_commands.push_back(bind_pipeline);
-
-    std::array<ecs::entity_id_t, max_entities> entities;
-    std::size_t entity_count = manager.get_entities(entities);
-
-    entity_count = manager.filter_inplace<component_mesh_t>(
-        std::span(entities).subspan(0, entity_count));
-
-    entity_count = manager.filter_inplace<component_transform_t>(
-        std::span(entities).subspan(0, entity_count));
-
-    for (ecs::entity_id_t entity : entities | std::views::take(entity_count)) {
-      auto *mesh = manager.get_component<component_mesh_t>(entity);
-      auto *transform = manager.get_component<component_transform_t>(entity);
-
-      draw_info_t draw_info;
-      draw_info.view = camera.view();
-      draw_info.projection = projection;
-      draw_info.model = transform->mat;
-      std::memcpy(
-          mesh->direct_uniforms[next_frame_info.flightframe]->memory_ptr(),
-          &draw_info, sizeof(draw_info));
-
-      alex::graph::command::buffer_upload_t upload{
-          .physical_device = core.physical_device(),
-          .device = core.device(),
-          .direct_buffer =
-              &mesh->direct_uniforms[next_frame_info.flightframe].value(),
-          .buffer = &mesh->uniforms[next_frame_info.flightframe].value()};
-
-      upload_commands.push_back(upload);
-
-      alex::graph::command::bind_descriptorsets_t bind_descriptorsets{
-          .layout = geometry_pipeline.layout,
-          .sets = {mesh->descriptorsets->get_set(next_frame_info.flightframe)},
-      };
-
-      alex::graph::command::bind_vertexbuffer_t bind_vertexbuffer{
-          .first_binding = 0,
-          .binding_offsets = {0},
-          .first_buffer = 0,
-          .buffers = {mesh->vertices->buffer()}};
-
-      alex::graph::command::draw_t draw{.instance_count = 1,
-                                        .first_instance = 0,
-                                        .vertex_count = mesh->vertices_length,
-                                        .first_vertex = 0};
-
-      geometry_pass_commands.push_back(bind_descriptorsets);
-      geometry_pass_commands.push_back(bind_vertexbuffer);
-      geometry_pass_commands.push_back(draw);
-    }
-
-    alex::graph::evaluate_info_t evaluate_info;
-    evaluate_info.flightframe = next_frame_info.flightframe;
-    evaluate_info.queue = core.queue();
-    evaluate_info.uploadpass_commands.emplace_back("upload", upload_commands);
-    evaluate_info.renderpass_commands.emplace_back("geometry-pass",
-                                                   geometry_pass_commands);
-    graph.evaluate(evaluate_info);
-#endif
-
     alex::presentation_info_t presentation_info;
     presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
     presentation_info.source_offset_end =
@@ -745,10 +603,6 @@ int main() {
     presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
     presentation_info.queue = core.queue();
     presentation_info.wait_semaphore = graph_finished_semaphore;
-
-    //   presentation_info.commandbuffer =
-    //       next_frame_info.presentation_commandbuffer;
-
     presenter.present(presentation_info);
     deltaclock.tick();
   }
