@@ -10,11 +10,12 @@
 
 #include "alex/flightframe_array.hpp"
 #include "alex/log.hpp"
+
 #include "ecs.hpp"
 
+#include "../utility/button.hpp"
 #include "../utility/sdl.hpp"
 
-#include "button.hpp"
 #include "cube_prefab.hpp"
 #include "draw_info_uniform.hpp"
 #include "glm.hpp"
@@ -35,13 +36,11 @@ using namespace std::literals;
 std::size_t constexpr mb = 1'000'000;
 
 int main() {
-  alex::global::singleton_t::instance().set_log_level(alex::log_level_t::info);
-
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
   alex::memory::arena init_arena(memory);
 
-  auto start_time = std::chrono::high_resolution_clock::now();
+  auto program_start_time = std::chrono::high_resolution_clock::now();
 
   sdl::window_info_t window_info{};
   window_info.name = "simple-renderer";
@@ -256,11 +255,11 @@ int main() {
   });
 
   {
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto time_ns = end_time - start_time;
-    auto time =
-        std::chrono::duration_cast<std::chrono::duration<double>>(time_ns);
-    std::println("Initialization Time: {}", time);
+    auto now = std::chrono::high_resolution_clock::now();
+    auto initialization_time =
+        std::chrono::duration_cast<std::chrono::duration<double>>(
+            now - program_start_time);
+    std::println("Initialization time: {}", initialization_time);
   }
 
   struct buttons_t {
