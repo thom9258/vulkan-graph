@@ -8,15 +8,11 @@
 #include <alex/task_graph.hpp>
 
 #include "alex/flightframe_array.hpp"
-#include "alex/log.hpp"
-
-#include "ecs.hpp"
 
 #include "../utility/button.hpp"
 #include "../utility/sdl.hpp"
 
 #include "cube_prefab.hpp"
-#include "draw_info_uniform.hpp"
 #include "glm.hpp"
 #include "orbit_camera.hpp"
 
@@ -31,6 +27,12 @@
 #include <vulkan/vulkan_structs.hpp>
 
 using namespace std::literals;
+
+struct draw_info_t {
+  glm::mat4 view;
+  glm::mat4 projection;
+  glm::mat4 model;
+};
 
 std::size_t constexpr mb = 1'000'000;
 
