@@ -45,7 +45,6 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
   alex::direct_memory_buffer_t direct_cube_buffer(direct_cube_buffer_info);
   std::memcpy(direct_cube_buffer.memory_ptr(), cube_vertices.data(),
               direct_cube_buffer.memory_size());
-  LOG_INFO("Created direct vertex buffer");
 
   alex::memory_buffer_info_t cube_buffer_info;
   cube_buffer_info.physical_device = info.core->physical_device();
@@ -63,7 +62,6 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
 
     mesh->vertices.emplace(cube_buffer_info);
     mesh->vertices.value().record_write(cube_buffer_write_info);
-    LOG_INFO("Created cube vertex buffer");
 
     draw_info_t cube_draw_info;
 

@@ -45,7 +45,7 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
   ENSURE_NOT(fragment_source.empty(), "Could not load fragment source: [{}]",
              info.fragment_program_path.string())
 
-  LOG_INFO("Compiled shader source for geometry pipeline: {} + {}",
+  LOG_INFO("Compiled shader {} + {}",
            info.vertex_program_path.string(),
            info.fragment_program_path.string());
 

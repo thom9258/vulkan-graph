@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.2)
 
-project(graph VERSION 0.1.0)
+project(rendering VERSION 0.1.0)
 
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -ggdb -pg")
 set(CMAKE_CXX_STANDARD 26)

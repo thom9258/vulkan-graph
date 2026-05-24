@@ -13,16 +13,13 @@
 #include "alex/flightframe_array.hpp"
 #include "ecs.hpp"
 
-#include "../utility/deltaclock.hpp"
+#include "../utility/sdl.hpp"
+
 #include "button.hpp"
 #include "cube_prefab.hpp"
 #include "draw_info_uniform.hpp"
 #include "glm.hpp"
 #include "orbit_camera.hpp"
-
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_vulkan.h>
-#include <SDL_video.h>
 
 #include <chrono>
 #include <iostream>
@@ -36,16 +33,6 @@
 
 using namespace std::literals;
 
-auto poll_all_sdl_events() -> std::vector<SDL_Event> {
-  std::vector<SDL_Event> events;
-  SDL_Event event;
-  while (SDL_PollEvent(&event)) {
-    events.push_back(event);
-  }
-
-  return events;
-};
-
 std::size_t constexpr mb = 1'000'000;
 
 int main() {
@@ -57,34 +44,16 @@ int main() {
 
   auto start_time = std::chrono::high_resolution_clock::now();
 
-  if (SDL_Init(SDL_INIT_EVERYTHING) == 0) {
-    LOG_CRITICAL("Could not init sdl!");
-  }
+  sdl::window_info_t window_info{};
+  window_info.name = "simple-renderer";
+  window_info.x = -1;
+  window_info.y = -1;
+  window_info.width = 800;
+  window_info.height = 600;
 
-  SDL_Vulkan_LoadLibrary(nullptr);
+  sdl::window_t window(window_info);
 
-  struct {
-    std::string_view name{"graph"};
-    int x{-1};
-    int y{-1};
-    int width{800};
-    int height{600};
-  } window_info;
-
-  SDL_Window *window = SDL_CreateWindow(
-      window_info.name.data(), window_info.x, window_info.y, window_info.width,
-      window_info.height, 0 | SDL_WINDOW_VULKAN);
-
-  if (!window) {
-    LOG_CRITICAL("Could not create window!");
-  }
-
-  uint32_t window_extensions_count{0};
-  SDL_Vulkan_GetInstanceExtensions(window, &window_extensions_count, nullptr);
-
-  std::vector<const char *> window_extensions(window_extensions_count);
-  SDL_Vulkan_GetInstanceExtensions(window, &window_extensions_count,
-                                   window_extensions.data());
+  std::vector<const char *> window_extensions = window.instance_extensions();
 
   alex::context_info_t context_info;
   context_info.instance_extensions = window_extensions;
@@ -92,15 +61,11 @@ int main() {
 
   alex::context_t context(context_info);
 
-  vk::UniqueSurfaceKHR surface;
-  {
-    VkSurfaceKHR tmp;
-    SDL_Vulkan_CreateSurface(window, context.instance(), &tmp);
-    surface = vk::UniqueSurfaceKHR(vk::SurfaceKHR(tmp), context.instance());
-  }
+  vk::UniqueSurfaceKHR window_surface =
+      window.create_window_surface(context.instance());
 
   alex::core_info_t core_info;
-  core_info.surface = surface.get();
+  core_info.surface = window_surface.get();
   core_info.instance = context.instance();
   vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 4),
                              static_cast<std::int32_t>(window_info.height / 4),
@@ -108,59 +73,10 @@ int main() {
 
   alex::core_t core(core_info);
 
-#if 0  
-  std::vector<vk::DescriptorPoolSize> pool_sizes{
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eSampler)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eCombinedImageSampler)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eSampledImage)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eStorageImage)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eUniformTexelBuffer)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eStorageTexelBuffer)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eUniformBuffer)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eStorageBuffer)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eUniformBufferDynamic)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eStorageBufferDynamic)
-          .setDescriptorCount(1000),
-      vk::DescriptorPoolSize{}
-          .setType(vk::DescriptorType::eInputAttachment)
-          .setDescriptorCount(1000),
-  };
-
-  auto const pool_info =
-      vk::DescriptorPoolCreateInfo{}
-          .setPoolSizes(pool_sizes)
-          .setMaxSets(1000)
-          .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
-
-  vk::UniqueDescriptorPool descriptor_pool =
-      core.create_descriptorpool(pool_info);
-#endif
-
   /* ****************************************
    * Create DescriptorSet Layout for geometry pipeline
    */
-  int width{0};
-  int height{0};
-  SDL_GetWindowSize(window, &width, &height);
+  sdl::window_extent_t window_extent = window.window_extent();
 
   std::array<vk::DescriptorSetLayoutBinding,
              1> constexpr frame_uniform_bindings{
@@ -233,10 +149,10 @@ int main() {
   presenter_info.physical_device = core.physical_device();
   presenter_info.device = core.device();
   presenter_info.commandpool = core.commandpool();
-  presenter_info.surface = surface.get();
-  presenter_info.enable_vsync = false;
-  presenter_info.window_extent.width = width;
-  presenter_info.window_extent.height = height;
+  presenter_info.enable_vsync = true;
+  presenter_info.window_surface = window_surface.get();
+  presenter_info.window_extent.width = window_extent.width;
+  presenter_info.window_extent.height = window_extent.height;
   alex::presenter_t presenter(presenter_info);
 
   /* ****************************************
@@ -301,7 +217,7 @@ int main() {
   auto geometrypass_info = alex::graph::geometrypass_info_t(core.device())
                                .set_color_attachments(colorattachment_views)
                                .set_color_format(vk::Format::eR8G8B8A8Srgb)
-                               .set_color_clearvalue(0.1f, 0.1f, 0.1f, 1.0f)
+                               .set_color_clearvalue(0.0f, 0.0f, 0.0f, 1.0f)
                                .set_depth_format(vk::Format::eD32Sfloat)
                                .set_depth_attachments(depthattachment_views)
                                .set_depth_clearvalue(1.0f)
@@ -327,13 +243,11 @@ int main() {
 
   alex::flightframe_array_t<alex2::graph_t> taskgraphs;
 
-  DeltaClock deltaclock;
-
   float const camera_radius = 4.0f;
   glm::vec3 const target(0.0, 0.0, 0);
   OrbitCamera camera(target, camera_radius);
 
-  const float aspect = static_cast<float>(width) / static_cast<float>(height);
+  const float aspect = window_extent.aspect();
   const float near_plane = 1.0f, far_plane = 20.0f;
   glm::mat4 const projection = std::invoke([&]() {
     glm::mat4 p =
@@ -361,9 +275,13 @@ int main() {
 
   bool running = true;
   while (running) {
-    auto const deltatime = deltaclock.deltatime_ms();
-    float const movespeed = 5.0f * deltatime;
-    std::vector<SDL_Event> events = poll_all_sdl_events();
+    window.mark_next_frame();
+    std::span<SDL_Event> events = window.get_events();
+    double const deltatime = window.deltatime_seconds();
+    std::println("window deltatime: {}s totaltime: {}s", deltatime,
+                 window.totaltime_seconds());
+    double const movespeed = 5.0f * deltatime;
+
     for (SDL_Event event : events) {
       switch (event.type) {
       case SDL_QUIT:
@@ -541,8 +459,6 @@ int main() {
               for (ecs::entity_id_t entity :
                    entities | std::views::take(entity_count)) {
                 auto *mesh = manager.get_component<component_mesh_t>(entity);
-                auto *transform =
-                    manager.get_component<component_transform_t>(entity);
 
                 vk::DescriptorSet set =
                     mesh->descriptorsets->get_set(next_frame_info.flightframe);
@@ -604,12 +520,9 @@ int main() {
     presentation_info.queue = core.queue();
     presentation_info.wait_semaphore = graph_finished_semaphore;
     presenter.present(presentation_info);
-    deltaclock.tick();
   }
 
   core.device().waitIdle();
-  SDL_DestroyWindow(window);
-  SDL_Quit();
 
   return 0;
 }

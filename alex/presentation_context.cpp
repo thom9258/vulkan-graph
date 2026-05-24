@@ -29,7 +29,7 @@ presenter_t::presenter_t(presenter_info_t &info) {
   window_extent = info.window_extent;
 
   vk::SurfaceCapabilitiesKHR window_capabilities =
-      info.physical_device.getSurfaceCapabilitiesKHR(info.surface);
+      info.physical_device.getSurfaceCapabilitiesKHR(info.window_surface);
 
   const bool window_size_is_undefined =
       window_capabilities.currentExtent.width ==
@@ -42,13 +42,13 @@ presenter_t::presenter_t(presenter_info_t &info) {
 
   std::uint32_t surface_format_count{0};
   vk::Result result = info.physical_device.getSurfaceFormatsKHR(
-      info.surface, &surface_format_count, nullptr);
+      info.window_surface, &surface_format_count, nullptr);
   ENSURE(result == vk::Result::eSuccess, "could not get surfac format count!")
   std::vector<vk::SurfaceFormatKHR> available_surface_formats(
       surface_format_count);
 
   result = info.physical_device.getSurfaceFormatsKHR(
-      info.surface, &surface_format_count, available_surface_formats.data());
+      info.window_surface, &surface_format_count, available_surface_formats.data());
   ENSURE(result == vk::Result::eSuccess, "could not get surfac formats!")
 
   format = get_best_swapchain_surface_format(available_surface_formats);
@@ -90,7 +90,7 @@ presenter_t::presenter_t(presenter_info_t &info) {
   auto swapChainCreateInfo =
       vk::SwapchainCreateInfoKHR{}
           .setFlags(vk::SwapchainCreateFlagsKHR())
-          .setSurface(info.surface)
+          .setSurface(info.window_surface)
           .setMinImageCount(image_count)
           .setImageFormat(format.format)
           .setImageColorSpace(format.colorSpace)
