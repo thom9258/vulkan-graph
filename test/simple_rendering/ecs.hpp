@@ -1,19 +1,9 @@
 #pragma once
 
-#include <alex/core.hpp>
-#include <alex/arena.hpp>
-#include <alex/log.hpp>
-#include <alex/ensure.hpp>
-#include <alex/flightframe_array.hpp>
-#include <alex/memory_buffer.hpp>
-#include <alex/uniform_descriptorsets.hpp>
-
-#include <vulkan/vulkan_enums.hpp>
-
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_RADIANS
-#include <glm/glm.hpp>
 #include <glm/ext.hpp>
+#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -21,24 +11,35 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/string_cast.hpp>
 
+#include <alex/arena.hpp>
+#include <alex/core.hpp>
+#include <alex/ensure.hpp>
+#include <alex/flightframe_array.hpp>
+#include <alex/log.hpp>
+#include <alex/memory_buffer.hpp>
+#include <alex/uniform_descriptorsets.hpp>
 
 #include "alex/uniform_descriptorsets.hpp"
-#include "draw_info_uniform.hpp"
-#include "ecs.hpp"
 
 #define SIMPLE_GEOMETRY_IMPLEMENTATION
 #include <simple_geometry.h>
-
 
 #include "../sukoshi_ecs/sukoshi_ecs.hpp"
 
 #include <ranges>
 
+struct draw_info_t {
+  glm::mat4 view;
+  glm::mat4 projection;
+  glm::mat4 model;
+};
+
 struct component_mesh_t {
   std::optional<alex::memory_buffer_t> vertices;
   std::uint32_t vertices_length;
   vk::UniqueDescriptorPool uniform_descriptor_pool;
-  alex::flightframe_array_t<std::optional<alex::direct_memory_buffer_t>> direct_uniforms;
+  alex::flightframe_array_t<std::optional<alex::direct_memory_buffer_t>>
+      direct_uniforms;
   alex::flightframe_array_t<std::optional<alex::memory_buffer_t>> uniforms;
   std::optional<alex::uniform_descriptorsets_t> descriptorsets;
 };
@@ -48,6 +49,7 @@ struct component_transform_t {
 };
 
 static constexpr std::size_t max_entities = 100;
+
 namespace ecs {
 using manager_t = sukoshi::ecs::manager_t<
     sukoshi::ecs::component_policy_t<component_mesh_t, max_entities>,
@@ -56,14 +58,15 @@ using entity_id_t = manager_t::entity_id_t;
 
 using entity_pointer_t = manager_t::entity_pointer_t;
 
+} // namespace ecs
 
 struct vertex_t {
   float position[3];
   float color[3];
 };
 
-constexpr auto generate_cube(alex::memory::arena &arena, float r, float g, float b)
-    -> std::span<vertex_t> {
+constexpr auto generate_cube(alex::memory::arena &arena, float r, float g,
+                             float b) -> std::span<vertex_t> {
   sg_status status;
   sg_cube_info info;
   info.width = 1.0f;
