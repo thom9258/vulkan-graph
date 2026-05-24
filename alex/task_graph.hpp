@@ -1,11 +1,10 @@
 #pragma once
 
-#include "graph.hpp"
 #include "vulkan_include.hpp"
-#include <algorithm>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
 
+#include <algorithm>
 #include <concepts>
 #include <functional>
 #include <map>
