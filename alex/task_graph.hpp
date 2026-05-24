@@ -12,7 +12,7 @@
 #include <ranges>
 #include <type_traits>
 
-namespace alex2 {
+namespace alex {
 
 class task_id_t {
   friend class graph_t;

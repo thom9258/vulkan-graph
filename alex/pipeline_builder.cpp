@@ -4,7 +4,7 @@
 #include "read_spirv_source.hpp"
 #include <vulkan/vulkan_enums.hpp>
 
-namespace alex::graph {
+namespace alex {
 
 pipeline_info_t::pipeline_info_t(vk::Device device) : device{device} {}
 
@@ -224,11 +224,11 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
                                                graphicsPipelineCreateInfo);
 
   ALEX_ERROR_IF(result.result != vk::Result::eSuccess,
-         "Could not create graphics pipeline")
+                "Could not create graphics pipeline")
   _pipeline = std::move(result.value);
 }
 
 auto pipeline_t::layout() -> vk::PipelineLayout { return _layout.get(); }
 auto pipeline_t::pipeline() -> vk::Pipeline { return _pipeline.get(); }
 
-} // namespace alex::graph
+} // namespace alex

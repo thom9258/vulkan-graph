@@ -5,7 +5,7 @@
 
 #include <filesystem>
 
-namespace alex::graph {
+namespace alex {
 
 struct pipeline_info_t {
   pipeline_info_t(vk::Device device);
@@ -38,4 +38,4 @@ private:
   vk::UniquePipeline _pipeline;
 };
 
-} // namespace alex::graph
+} // namespace alex

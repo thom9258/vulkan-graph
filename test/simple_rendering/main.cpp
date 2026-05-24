@@ -213,7 +213,7 @@ int main() {
     view = depthattachments[i].view();
   }
 
-  auto geometrypass_info = alex::graph::geometrypass_info_t(core.device())
+  auto geometrypass_info = alex::geometrypass_info_t(core.device())
                                .set_color_attachments(colorattachment_views)
                                .set_color_format(vk::Format::eR8G8B8A8Srgb)
                                .set_color_clearvalue(0.0f, 0.0f, 0.0f, 1.0f)
@@ -223,24 +223,24 @@ int main() {
                                .set_extent(render_extent)
                                .set_loadop(vk::AttachmentLoadOp::eClear);
 
-  alex::graph::geometrypass_t geometry_pass(geometrypass_info);
+  alex::geometrypass_t geometry_pass(geometrypass_info);
 
   auto geometry_pipeline_info =
-      alex::graph::pipeline_info_t(core.device())
+      alex::pipeline_info_t(core.device())
           .set_extent(render_extent)
           .set_renderpass(geometry_pass.renderpass())
           .set_vertex_program_path("./geometry.vert.spv")
           .set_fragment_program_path("./geometry.frag.spv")
           .add_setlayout(geometry_pipeline_info_setlayout.get());
 
-  alex::graph::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
+  alex::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
   alex::flightframe_array_t<vk::UniqueSemaphore> taskgraph_semaphores;
   for (vk::UniqueSemaphore &semaphore : taskgraph_semaphores) {
     semaphore = core.create_semaphore();
   }
 
-  alex::flightframe_array_t<alex2::graph_t> taskgraphs;
+  alex::flightframe_array_t<alex::graph_t> taskgraphs;
 
   float const camera_radius = 4.0f;
   glm::vec3 const target(0.0, 0.0, 0);
@@ -361,16 +361,16 @@ int main() {
     alex::next_frame_info_t next_frame_info =
         presenter.wait_for_next_frame(core.device());
 
-    auto upload_task_id = alex2::task_id_t(0);
-    auto geometry_task_id = alex2::task_id_t(1);
-    auto present_task_id = alex2::task_id_t(2);
+    auto upload_task_id = alex::task_id_t(0);
+    auto geometry_task_id = alex::task_id_t(1);
+    auto present_task_id = alex::task_id_t(2);
 
-    taskgraphs[next_frame_info.flightframe] = alex2::graph_t();
-    alex2::graph_t &graph = taskgraphs[next_frame_info.flightframe];
+    taskgraphs[next_frame_info.flightframe] = alex::graph_t();
+    alex::graph_t &graph = taskgraphs[next_frame_info.flightframe];
 
     graph.add_task(
         upload_task_id,
-        std::make_unique<alex2::simple_task_t>(
+        std::make_unique<alex::simple_task_t>(
             "upload", [&](vk::CommandBuffer commandbuffer) {
               std::array<ecs::entity_id_t, max_entities> entities;
               std::size_t entity_count = manager.get_entities(entities);
@@ -408,7 +408,7 @@ int main() {
 
     graph.add_task(
         geometry_task_id,
-        std::make_unique<alex2::simple_task_t>(
+        std::make_unique<alex::simple_task_t>(
             "geometry", [&](vk::CommandBuffer commandbuffer) {
               const auto render_area =
                   vk::Rect2D{}
@@ -476,23 +476,23 @@ int main() {
             }));
 
     graph.add_task(present_task_id,
-                   std::make_unique<alex2::simple_task_t>(
+                   std::make_unique<alex::simple_task_t>(
                        "present", [](vk::CommandBuffer commandbuffer) {}));
 
-    graph.add_dependency(alex2::dependency_info_t{.device = core.device(),
-                                                  .parent = upload_task_id,
-                                                  .child = geometry_task_id});
+    graph.add_dependency(alex::dependency_info_t{.device = core.device(),
+                                                 .parent = upload_task_id,
+                                                 .child = geometry_task_id});
 
-    graph.add_dependency(alex2::dependency_info_t{.device = core.device(),
-                                                  .parent = geometry_task_id,
-                                                  .child = present_task_id});
+    graph.add_dependency(alex::dependency_info_t{.device = core.device(),
+                                                 .parent = geometry_task_id,
+                                                 .child = present_task_id});
 
     graph.set_end(present_task_id);
 
     vk::Semaphore graph_finished_semaphore =
         taskgraph_semaphores[next_frame_info.flightframe].get();
 
-    auto graph_evaluate_info = alex2::graph_evaluate_info_t{};
+    auto graph_evaluate_info = alex::graph_evaluate_info_t{};
     graph_evaluate_info.device = core.device();
     graph_evaluate_info.commandpool = core.commandpool();
     graph_evaluate_info.queue = core.queue();

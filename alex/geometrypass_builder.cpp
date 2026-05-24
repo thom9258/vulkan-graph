@@ -3,7 +3,7 @@
 
 #include <ranges>
 
-namespace alex::graph {
+namespace alex {
 
 geometrypass_info_t::geometrypass_info_t(vk::Device device) : device{device} {}
 
@@ -151,4 +151,4 @@ auto geometrypass_t::clearvalues() -> std::array<vk::ClearValue, 2> {
   return _clearvalues;
 }
 
-} // namespace alex::graph
+} // namespace alex
