@@ -3,7 +3,7 @@
 #include "core.hpp"
 #include "flightframe_array.hpp"
 
-namespace alex::graph {
+namespace alex {
 
 struct geometrypass_info_t {
   geometrypass_info_t(vk::Device device);
@@ -31,13 +31,20 @@ struct geometrypass_info_t {
   std::array<vk::ClearValue, 2> clearvalues;
 };
 
-struct geometrypass_t {
-  geometrypass_t() = default;
+class geometrypass_t {
+public:
   geometrypass_t(geometrypass_info_t &info);
-  vk::RenderPass renderpass;
-  vk::Extent2D extent;
-  std::array<vk::ClearValue, 2> clearvalues;
-  flightframe_array_t<vk::Framebuffer> framebuffers;
+
+  auto renderpass() -> vk::RenderPass;
+  auto framebuffer(std::uint32_t frame_in_flight) -> vk::Framebuffer;
+  auto extent() -> vk::Extent3D;
+  auto clearvalues() -> std::array<vk::ClearValue, 2>;
+
+private:
+  vk::UniqueRenderPass _renderpass;
+  flightframe_array_t<vk::UniqueFramebuffer> _framebuffers;
+  vk::Extent3D _extent;
+  std::array<vk::ClearValue, 2> _clearvalues;
 };
 
-} // namespace alex::graph
+} // namespace alex

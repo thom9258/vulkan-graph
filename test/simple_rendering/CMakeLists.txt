@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.2)
 
-project(graph VERSION 0.1.0)
+project(rendering VERSION 0.1.0)
 
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -ggdb -pg")
 set(CMAKE_CXX_STANDARD 26)
@@ -46,8 +46,8 @@ set(PROGRAM_SOURCES
   ../../alex/presentation_context.cpp
   ../../alex/texture.cpp
   ../../alex/texture_storage.cpp
-  ../../alex/graph.cpp
-  ../../alex/graph_builder.cpp
+  #../../alex/graph.cpp
+  #../../alex/graph_builder.cpp
   ../../alex/geometrypass_builder.cpp
   ../../alex/pipeline_builder.cpp
   ../../alex/uniform_descriptorsets.cpp

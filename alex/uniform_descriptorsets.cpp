@@ -1,5 +1,5 @@
 #include "uniform_descriptorsets.hpp"
-#include "ensure.hpp"
+#include "log.hpp"
 
 #include <vulkan/vulkan_structs.hpp>
 
@@ -18,18 +18,17 @@ uniform_descriptorsets_t::uniform_descriptorsets_t(
                         .setSetLayouts(layouts);
 
   sets = info.device.allocateDescriptorSetsUnique(alloc_info);
-  ENSURE_NOT(sets.empty(), "could not allocate descriptor sets")
-  ENSURE(sets.size() == info.set_count,
-         "could not allocate {} descriptor sets got {} instead", info.set_count,
-         sets.size())
+  ALEX_ERROR_IF(sets.size() != info.set_count,
+                "could not allocate {} descriptor sets got {} instead",
+                info.set_count, sets.size())
 }
 
 void uniform_descriptorsets_t::update(
     uniform_descriptorsets_update_info_t &info) {
 
-  ENSURE(info.set_index < sets.size(),
-         "Set index {} is invalid for sets of size {}", info.set_index,
-         sets.size())
+  ALEX_ERROR_IF(info.set_index >= sets.size(),
+                "Set index {} is invalid for sets of size {}", info.set_index,
+                sets.size())
 
   const auto buffer_info = vk::DescriptorBufferInfo{}
                                .setBuffer(info.buffer->buffer())
@@ -49,8 +48,8 @@ void uniform_descriptorsets_t::update(
 }
 
 vk::DescriptorSet uniform_descriptorsets_t::get_set(std::size_t i) {
-  ENSURE(i < sets.size(), "Set index {} is invalid for sets of size {}", i,
-         sets.size())
+  ALEX_ERROR_IF(i >= sets.size(), "Set index {} is invalid for sets of size {}",
+                i, sets.size())
   return sets[i].get();
 }
 

@@ -11,7 +11,7 @@ struct presenter_info_t {
   vk::PhysicalDevice physical_device;
   vk::Device device;
   vk::CommandPool commandpool;
-  vk::SurfaceKHR surface;
+  vk::SurfaceKHR window_surface;
   vk::Extent2D window_extent;
   bool enable_vsync{true};
 };
@@ -34,6 +34,7 @@ struct presentation_info_t {
   vk::ImageLayout layout;
   vk::Queue queue;
   vk::CommandBuffer commandbuffer;
+  vk::Semaphore wait_semaphore;
 };
 
 struct presenter_t {

@@ -1,6 +1,4 @@
 #include "core.hpp"
-#include "ensure.hpp"
-#include "fixed_vector.hpp"
 #include "log.hpp"
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
@@ -14,9 +12,11 @@
 namespace alex {
 
 context_t::context_t(context_info_t &info) {
-  if (info.instance_extensions.empty()) {
-    LOG_WARN("No Vulkan Instance Extensions were provided");
-  }
+  ALEX_WARN_IF(
+      info.instance_extensions.empty(),
+      "No Vulkan Instance Extensions were provided! This might indicate a "
+      "logical error, it is expected that a window instance provides a list "
+      "of nessecary instance extensions it needs to run.");
 
   std::vector<const char *> extensions;
   for (const char *extension : info.instance_extensions) {
@@ -25,9 +25,9 @@ context_t::context_t(context_info_t &info) {
 
   extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-  LOG_INFO("Loaded Extensions ({}):", extensions.size());
+  ALEX_INFO("Loaded Extensions ({}):", extensions.size());
   for (const char *extension : extensions) {
-    LOG_INFO("  {}", extension);
+    ALEX_INFO("  {}", extension);
   }
 
   std::array<const char *, 1> validation_layers{
@@ -47,9 +47,9 @@ context_t::context_t(context_info_t &info) {
                                 .setPpEnabledExtensionNames(extensions.data());
 
   if (info.enable_validation) {
-    LOG_INFO("Loaded Validation Layers ({}):", validation_layers.size());
+    ALEX_INFO("Loaded Validation Layers ({}):", validation_layers.size());
     for (auto layer : validation_layers) {
-      LOG_INFO("  {}", layer);
+      ALEX_INFO("  {}", layer);
     }
     instanceCreateInfo.setPEnabledLayerNames(validation_layers);
   }
@@ -134,15 +134,15 @@ core_t::core_t(core_info_t &info) {
   uint32_t physical_device_count{0};
   vk::Result result =
       info.instance.enumeratePhysicalDevices(&physical_device_count, nullptr);
-  ENSURE(result == vk::Result::eSuccess,
-         "Could not enumerate physical devices");
+  ALEX_ERROR_IF(result != vk::Result::eSuccess,
+                "Could not enumerate physical devices");
 
   std::vector<vk::PhysicalDevice> physical_devices(physical_device_count);
   result = info.instance.enumeratePhysicalDevices(&physical_device_count,
                                                   physical_devices.data());
 
-  ENSURE(result == vk::Result::eSuccess,
-         "Could not enumerate physical devices");
+  ALEX_ERROR_IF(result != vk::Result::eSuccess,
+                "Could not enumerate physical devices");
 
   using score_t = std::optional<std::uint64_t>;
   std::vector<score_t> scores(physical_devices.size());
@@ -151,7 +151,7 @@ core_t::core_t(core_info_t &info) {
   }
 
   std::uint32_t best_score{0};
-  LOG_INFO("Physical Devices ({}):", physical_device_count);
+  ALEX_INFO("Physical Devices ({}):", physical_device_count);
   for (auto [device, score] : std::views::zip(physical_devices, scores)) {
 
     if (!score.has_value())
@@ -163,20 +163,25 @@ core_t::core_t(core_info_t &info) {
     }
 
     vk::PhysicalDeviceProperties properties = device.getProperties();
-    LOG_INFO("  {}) {}, score: {}", properties.deviceName.data(),
-             vk::to_string(properties.deviceType), score.value());
+    ALEX_INFO("  {}) {}, score: {}", properties.deviceName.data(),
+              vk::to_string(properties.deviceType), score.value());
   }
-  ENSURE(best_score > 0, "Could not get a suitable physical_device")
+  ALEX_ERROR_IF(best_score < 1, "Could not get a suitable physical_device")
 
   {
     vk::PhysicalDeviceProperties properties = _physical_device.getProperties();
-    LOG_INFO("Chosen Physical Device: {}", properties.deviceName.data());
+    ALEX_INFO("Chosen Physical Device: {}", properties.deviceName.data());
   }
 
   {
     std::optional<std::uint32_t> family =
         get_queue_family(_physical_device, info.surface);
-    ENSURE(family, "Could not get a queue family for physical_device")
+
+    if (!family.has_value()) {
+      ALEX_ERROR("Could not get a queue family for physical_device")
+      return;
+    }
+
     _queuefamily_index = family.value();
   }
 
@@ -254,6 +259,10 @@ auto core_t::create_fence_signaled() -> vk::UniqueFence {
 
 auto core_t::create_fence() -> vk::UniqueFence {
   return device().createFenceUnique(vk::FenceCreateInfo{});
+}
+
+auto core_t::create_semaphore() -> vk::UniqueSemaphore {
+  return device().createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 }
 
 } // namespace alex

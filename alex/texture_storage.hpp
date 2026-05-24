@@ -25,7 +25,7 @@ struct texture_storage_t {
   void add(std::string_view name, std::span<texture_t> textures);
   auto find(std::string_view name) -> std::span<texture_t>;
   [[nodiscard]]
-  auto remove(std::string_view name) -> std::span<texture_t>;
+  auto remove(std::string_view name) -> std::vector<texture_t>;
 
   std::vector<stored_texture_t> m_stored_textures;
 };

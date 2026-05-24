@@ -1,5 +1,7 @@
 #pragma once
 
+#if 0
+
 #include "log.hpp"
 
 #include <source_location>
@@ -59,4 +61,6 @@ constexpr void unreachable_fmt(std::source_location loc,
 
 #define UNREACHABLE(MSG, ...)                                                  \
   unreachable_fmt(std::source_location::current(), MSG, ##__VA_ARGS__);
+#endif
+
 #endif

@@ -4,6 +4,7 @@
 #include <alex/core.hpp>
 #include <alex/drawing.hpp>
 #include <alex/ensure.hpp>
+#include <vulkan/vulkan_enums.hpp>
 
 #include "alex/uniform_descriptorsets.hpp"
 #include "draw_info_uniform.hpp"
@@ -44,7 +45,6 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
   alex::direct_memory_buffer_t direct_cube_buffer(direct_cube_buffer_info);
   std::memcpy(direct_cube_buffer.memory_ptr(), cube_vertices.data(),
               direct_cube_buffer.memory_size());
-  LOG_INFO("Created direct vertex buffer");
 
   alex::memory_buffer_info_t cube_buffer_info;
   cube_buffer_info.physical_device = info.core->physical_device();
@@ -62,7 +62,6 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
 
     mesh->vertices.emplace(cube_buffer_info);
     mesh->vertices.value().record_write(cube_buffer_write_info);
-    LOG_INFO("Created cube vertex buffer");
 
     draw_info_t cube_draw_info;
 
@@ -100,17 +99,20 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
             vk::DescriptorType::eUniformBuffer)};
 
     auto pool_create_info =
-        vk::DescriptorPoolCreateInfo{}.setPoolSizes(pool_sizes).setMaxSets(4);
+        vk::DescriptorPoolCreateInfo{}
+            .setPoolSizes(pool_sizes)
+            .setMaxSets(4)
+            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
 
-    vk::DescriptorPool descriptor_pool =
-        info.core->device().createDescriptorPool(pool_create_info);
+    mesh->uniform_descriptor_pool =
+        info.core->device().createDescriptorPoolUnique(pool_create_info);
 
     alex::uniform_descriptorsets_info_t cube_descriptorsets_info;
     cube_descriptorsets_info.physical_device = info.core->physical_device();
     cube_descriptorsets_info.device = info.core->device();
     cube_descriptorsets_info.set_count = 2;
     cube_descriptorsets_info.layout = info.set_layout;
-    cube_descriptorsets_info.pool = descriptor_pool;
+    cube_descriptorsets_info.pool = mesh->uniform_descriptor_pool.get();
 
     mesh->descriptorsets.emplace(cube_descriptorsets_info);
     for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {

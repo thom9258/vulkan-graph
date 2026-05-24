@@ -43,6 +43,7 @@ public:
 
   auto create_commandbuffer() -> vk::UniqueCommandBuffer;
   auto create_fence() -> vk::UniqueFence;
+  auto create_semaphore() -> vk::UniqueSemaphore;
   auto create_fence_signaled() -> vk::UniqueFence;
 
   template <typename F>

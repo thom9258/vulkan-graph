@@ -3,7 +3,7 @@
 
 #include <ranges>
 
-namespace alex::graph {
+namespace alex {
 
 geometrypass_info_t::geometrypass_info_t(vk::Device device) : device{device} {}
 
@@ -51,7 +51,9 @@ geometrypass_info_t &geometrypass_info_t::set_loadop(vk::AttachmentLoadOp op) {
 }
 
 geometrypass_t::geometrypass_t(geometrypass_info_t &info) {
-  clearvalues = info.clearvalues;
+  _clearvalues = info.clearvalues;
+  _extent = info.extent;
+
   const auto color_attachment =
       vk::AttachmentDescription{}
           .setFlags(vk::AttachmentDescriptionFlags())
@@ -96,7 +98,6 @@ geometrypass_t::geometrypass_t(geometrypass_info_t &info) {
                      .setColorAttachments(color_reference)
                      .setPDepthStencilAttachment(&depth_reference);
 
-
   auto color_depth_dependency =
       vk::SubpassDependency{}
           .setSrcSubpass(vk::SubpassExternal)
@@ -119,8 +120,8 @@ geometrypass_t::geometrypass_t(geometrypass_info_t &info) {
                                   .setDependencies(dependencies)
                                   .setSubpasses(subpass);
 
-  renderpass = info.device.createRenderPass(renderPassCreateInfo);
-  for (auto [i, framebuffer] : framebuffers | std::views::enumerate) {
+  _renderpass = info.device.createRenderPassUnique(renderPassCreateInfo);
+  for (auto [i, framebuffer] : _framebuffers | std::views::enumerate) {
 
     std::array<vk::ImageView, 2> attachments = {info.color_attachments[i],
                                                 info.depth_attachments[i]};
@@ -129,11 +130,25 @@ geometrypass_t::geometrypass_t(geometrypass_info_t &info) {
                                 .setWidth(info.extent.width)
                                 .setHeight(info.extent.height)
                                 .setLayers(1)
-                                .setRenderPass(renderpass);
+                                .setRenderPass(_renderpass.get());
 
-    framebuffer = info.device.createFramebuffer(framebuffer_info);
+    framebuffer = info.device.createFramebufferUnique(framebuffer_info);
   }
- 
 }
 
-} // namespace alex::graph
+auto geometrypass_t::renderpass() -> vk::RenderPass {
+  return _renderpass.get();
+}
+
+auto geometrypass_t::framebuffer(std::uint32_t frame_in_flight)
+    -> vk::Framebuffer {
+  return _framebuffers[frame_in_flight].get();
+}
+
+auto geometrypass_t::extent() -> vk::Extent3D { return _extent; }
+
+auto geometrypass_t::clearvalues() -> std::array<vk::ClearValue, 2> {
+  return _clearvalues;
+}
+
+} // namespace alex

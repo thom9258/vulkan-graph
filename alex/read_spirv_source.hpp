@@ -21,7 +21,7 @@ std::span<uint32_t> read_spirv_source(std::filesystem::path path,
   constexpr size_t scaling_factor = sizeof(uint32_t) / sizeof(char);
   size_t const read_times = bytecount / scaling_factor;
   auto buffer = allocator.allocate<std::uint32_t>(read_times);
-  ENSURE_NOT(buffer.empty(), "allocator full");
+  ALEX_ERROR_IF(buffer.empty(), "allocator full");
   file.seekg(0);
   file.read(reinterpret_cast<char *>(buffer.data()),
             sizeof(buffer[0]) * buffer.size());
