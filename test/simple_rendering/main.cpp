@@ -1,5 +1,4 @@
 #include <alex/core.hpp>
-#include <alex/drawing.hpp>
 #include <alex/geometrypass_builder.hpp>
 #include <alex/memory_buffer.hpp>
 #include <alex/pipeline_builder.hpp>
