@@ -2,7 +2,7 @@
 
 #include <alex/arena.hpp>
 #include <alex/drawing.hpp>
-#include <alex/ensure.hpp>
+#include <alex/log.hpp>
 
 #define SIMPLE_GEOMETRY_IMPLEMENTATION
 #include <simple_geometry.h>
@@ -19,22 +19,22 @@ constexpr auto load_cube(alex::memory::arena &arena, float r, float g, float b)
 
   size_t vertices_size{0};
   status = sg_cube_vertices(&info, &vertices_size, nullptr, nullptr, nullptr);
-  ENSURE(sg_success(status), "Could not load vertices size")
+  ALEX_ERROR_IF(!sg_success(status), "Could not load vertices size")
   auto positions = arena.allocate<sg_position>(vertices_size);
-  ENSURE_NOT(positions.empty(), "Could not allocate positions buffer")
+  ALEX_ERROR_IF(positions.empty(), "Could not allocate positions buffer")
 
   status = sg_cube_vertices(&info, &vertices_size, positions.data(), nullptr,
                             nullptr);
-  ENSURE(sg_success(status), "Could not load vertices")
+  ALEX_ERROR_IF(!sg_success(status), "Could not load vertices")
 
   auto normals = arena.allocate<sg_normal>(vertices_size);
-  ENSURE_NOT(normals.empty(), "Could not allocate normals buffer")
+  ALEX_ERROR_IF(normals.empty(), "Could not allocate normals buffer")
   status =
       sg_cube_vertices(&info, &vertices_size, nullptr, normals.data(), nullptr);
-  ENSURE(sg_success(status), "Could not load vertices")
+  ALEX_ERROR_IF(!sg_success(status), "Could not load vertices")
 
   auto vertices = arena.allocate<alex::vertex_t>(vertices_size);
-  ENSURE_NOT(vertices.empty(), "Could not allocate vertices buffer")
+  ALEX_ERROR_IF(vertices.empty(), "Could not allocate vertices buffer")
 
   for (auto [i, vertex] : vertices | std::views::enumerate) {
     vertex.position[0] = positions[i].x;

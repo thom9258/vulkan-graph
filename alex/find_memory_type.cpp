@@ -1,5 +1,5 @@
 #include "find_memory_type.hpp"
-#include "ensure.hpp"
+#include "log.hpp"
 
 namespace alex {
 
@@ -16,7 +16,7 @@ find_memory_type(vk::PhysicalDeviceMemoryProperties const &memoryProperties,
     typeBits >>= 1;
   }
 
-  ENSURE(typeIndex != uint32_t(~0), "No texture type");
+  ALEX_ERROR_IF(typeIndex == uint32_t(~0), "No texture type");
   return typeIndex;
 }
 

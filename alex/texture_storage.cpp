@@ -1,5 +1,4 @@
 #include "texture_storage.hpp"
-#include "ensure.hpp"
 #include "find_memory_type.hpp"
 #include <ranges>
 #include <vulkan/vulkan_enums.hpp>

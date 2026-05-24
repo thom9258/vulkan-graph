@@ -1,5 +1,6 @@
 #include "pipeline_builder.hpp"
 #include "drawing.hpp"
+#include "log.hpp"
 #include "read_spirv_source.hpp"
 #include <vulkan/vulkan_enums.hpp>
 
@@ -38,16 +39,12 @@ pipeline_info_t::add_setlayout(vk::DescriptorSetLayout setlayout) {
 pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
   auto vertex_source = read_spirv_source(info.vertex_program_path, arena);
 
-  ENSURE_NOT(vertex_source.empty(), "Could not load vertex source: [{}]",
-             info.vertex_program_path.string())
+  ALEX_ERROR_IF(vertex_source.empty(), "Could not load vertex source: [{}]",
+                info.vertex_program_path.string())
 
   auto fragment_source = read_spirv_source(info.fragment_program_path, arena);
-  ENSURE_NOT(fragment_source.empty(), "Could not load fragment source: [{}]",
-             info.fragment_program_path.string())
-
-  LOG_INFO("Compiled shader {} + {}",
-           info.vertex_program_path.string(),
-           info.fragment_program_path.string());
+  ALEX_ERROR_IF(fragment_source.empty(), "Could not load fragment source: [{}]",
+                info.fragment_program_path.string())
 
   auto vertexShaderModuleCreateInfo =
       vk::ShaderModuleCreateInfo{}
@@ -226,7 +223,7 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
       info.device.createGraphicsPipelineUnique(nullptr,
                                                graphicsPipelineCreateInfo);
 
-  ENSURE(result.result == vk::Result::eSuccess,
+  ALEX_ERROR_IF(result.result != vk::Result::eSuccess,
          "Could not create graphics pipeline")
   _pipeline = std::move(result.value);
 }

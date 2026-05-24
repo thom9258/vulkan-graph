@@ -1,7 +1,5 @@
 #include <alex/core.hpp>
 #include <alex/drawing.hpp>
-#include <alex/ensure.hpp>
-// #include <alex/graph.hpp>
 #include <alex/geometrypass_builder.hpp>
 #include <alex/memory_buffer.hpp>
 #include <alex/pipeline_builder.hpp>
@@ -11,6 +9,7 @@
 #include <alex/task_graph.hpp>
 
 #include "alex/flightframe_array.hpp"
+#include "alex/log.hpp"
 #include "ecs.hpp"
 
 #include "../utility/sdl.hpp"
@@ -36,7 +35,7 @@ using namespace std::literals;
 std::size_t constexpr mb = 1'000'000;
 
 int main() {
-  global::set_log_level(LogLevel::Info);
+  alex::global::singleton_t::instance().set_log_level(alex::log_level_t::info);
 
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
@@ -278,8 +277,6 @@ int main() {
     window.mark_next_frame();
     std::span<SDL_Event> events = window.get_events();
     double const deltatime = window.deltatime_seconds();
-    std::println("window deltatime: {}s totaltime: {}s", deltatime,
-                 window.totaltime_seconds());
     double const movespeed = 5.0f * deltatime;
 
     for (SDL_Event event : events) {

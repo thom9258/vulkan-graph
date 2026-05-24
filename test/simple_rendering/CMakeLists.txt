@@ -46,8 +46,8 @@ set(PROGRAM_SOURCES
   ../../alex/presentation_context.cpp
   ../../alex/texture.cpp
   ../../alex/texture_storage.cpp
-  ../../alex/graph.cpp
-  ../../alex/graph_builder.cpp
+  #../../alex/graph.cpp
+  #../../alex/graph_builder.cpp
   ../../alex/geometrypass_builder.cpp
   ../../alex/pipeline_builder.cpp
   ../../alex/uniform_descriptorsets.cpp

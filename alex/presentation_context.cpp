@@ -1,6 +1,5 @@
 #include "presentation_context.hpp"
 #include "core.hpp"
-#include "ensure.hpp"
 #include "log.hpp"
 #include "presentation_context.hpp"
 #include <vulkan/vulkan_enums.hpp>
@@ -36,20 +35,22 @@ presenter_t::presenter_t(presenter_info_t &info) {
       std::numeric_limits<uint32_t>::max();
 
   if (window_size_is_undefined) {
-    LOG_CRITICAL("Provided window surface has a undefined size!");
+    ALEX_ERROR("Provided window surface has a undefined size!");
     return;
   }
 
   std::uint32_t surface_format_count{0};
   vk::Result result = info.physical_device.getSurfaceFormatsKHR(
       info.window_surface, &surface_format_count, nullptr);
-  ENSURE(result == vk::Result::eSuccess, "could not get surfac format count!")
+  ALEX_ERROR_IF(result != vk::Result::eSuccess,
+                "could not get surface format count!")
   std::vector<vk::SurfaceFormatKHR> available_surface_formats(
       surface_format_count);
 
   result = info.physical_device.getSurfaceFormatsKHR(
-      info.window_surface, &surface_format_count, available_surface_formats.data());
-  ENSURE(result == vk::Result::eSuccess, "could not get surfac formats!")
+      info.window_surface, &surface_format_count,
+      available_surface_formats.data());
+  ALEX_ERROR_IF(result != vk::Result::eSuccess, "could not get surface formats!")
 
   format = get_best_swapchain_surface_format(available_surface_formats);
 
@@ -114,13 +115,14 @@ presenter_t::presenter_t(presenter_info_t &info) {
     vk::Result result = info.device.getSwapchainImagesKHR(
         _swapchain.get(), &image_count, nullptr);
 
-    ENSURE(result == vk::Result::eSuccess,
-           "could not get swapchain image count!")
+    ALEX_ERROR_IF(result != vk::Result::eSuccess,
+                  "could not get swapchain image count!")
 
     _images.resize(image_count);
     result = info.device.getSwapchainImagesKHR(_swapchain.get(), &image_count,
                                                _images.data());
-    ENSURE(result == vk::Result::eSuccess, "could not get surfac formats!")
+    ALEX_ERROR_IF(result != vk::Result::eSuccess,
+                  "could not get surface formats!")
   }
 
   {
@@ -192,7 +194,8 @@ next_frame_info_t presenter_t::wait_for_next_frame(vk::Device device) {
       _sync.in_flight[_sync.flightframe].get()};
   const auto max_wait = std::numeric_limits<unsigned int>::max();
   vk::Result wait_result = device.waitForFences(fences, true, max_wait);
-  ENSURE(wait_result == vk::Result::eSuccess, "Could not wait for swapchain")
+  ALEX_ERROR_IF(wait_result != vk::Result::eSuccess,
+                "Could not wait for swapchain")
   device.resetFences(fences);
 
   const auto max_acquire_wait = std::numeric_limits<uint64_t>::max();
@@ -200,8 +203,8 @@ next_frame_info_t presenter_t::wait_for_next_frame(vk::Device device) {
       _swapchain.get(), max_acquire_wait,
       _sync.image_available[_sync.flightframe].get(), nullptr);
 
-  ENSURE(result.result == vk::Result::eSuccess,
-         "Could not acquire next image from swapchain")
+  ALEX_ERROR_IF(result.result != vk::Result::eSuccess,
+                "Could not acquire next image from swapchain")
   _sync.image_index = result.value;
 
   vk::CommandBuffer commandbuffer =
@@ -351,7 +354,7 @@ void presenter_t::present(presentation_info_t &info) {
                           .setImageIndices(image_indices);
 
   vk::Result result = info.queue.presentKHR(present_info);
-  ENSURE(result == vk::Result::eSuccess, "could not present frame")
+  ALEX_ERROR_IF(result != vk::Result::eSuccess, "could not present frame")
   _sync.flightframe = (_sync.flightframe + 1) % frames_in_flight;
 }
 
