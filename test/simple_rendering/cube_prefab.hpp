@@ -2,14 +2,62 @@
 
 #include <alex/arena.hpp>
 #include <alex/core.hpp>
-#include <alex/drawing.hpp>
+#include <alex/log.hpp>
 #include <alex/ensure.hpp>
 #include <vulkan/vulkan_enums.hpp>
 
 #include "alex/uniform_descriptorsets.hpp"
 #include "draw_info_uniform.hpp"
 #include "ecs.hpp"
-#include "geometry_primitives.hpp"
+
+#define SIMPLE_GEOMETRY_IMPLEMENTATION
+#include <simple_geometry.h>
+
+#include <ranges>
+
+struct vertex_t {
+  float position[3];
+  float color[3];
+};
+
+constexpr auto generate_cube(alex::memory::arena &arena, float r, float g, float b)
+    -> std::span<vertex_t> {
+  sg_status status;
+  sg_cube_info info;
+  info.width = 1.0f;
+  info.height = 1.0f;
+  info.depth = 1.0f;
+
+  size_t vertices_size{0};
+  status = sg_cube_vertices(&info, &vertices_size, nullptr, nullptr, nullptr);
+  ALEX_ERROR_IF(!sg_success(status), "Could not load vertices size")
+  auto positions = arena.allocate<sg_position>(vertices_size);
+  ALEX_ERROR_IF(positions.empty(), "Could not allocate positions buffer")
+
+  status = sg_cube_vertices(&info, &vertices_size, positions.data(), nullptr,
+                            nullptr);
+  ALEX_ERROR_IF(!sg_success(status), "Could not load vertices")
+
+  auto normals = arena.allocate<sg_normal>(vertices_size);
+  ALEX_ERROR_IF(normals.empty(), "Could not allocate normals buffer")
+  status =
+      sg_cube_vertices(&info, &vertices_size, nullptr, normals.data(), nullptr);
+  ALEX_ERROR_IF(!sg_success(status), "Could not load vertices")
+
+  auto vertices = arena.allocate<vertex_t>(vertices_size);
+  ALEX_ERROR_IF(vertices.empty(), "Could not allocate vertices buffer")
+
+  for (auto [i, vertex] : vertices | std::views::enumerate) {
+    vertex.position[0] = positions[i].x;
+    vertex.position[1] = positions[i].y;
+    vertex.position[2] = positions[i].z;
+    vertex.color[0] = r;
+    vertex.color[1] = g;
+    vertex.color[2] = b;
+  }
+
+  return vertices;
+}
 
 struct cube_prefab_info_t {
   ecs::manager_t *manager;

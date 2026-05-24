@@ -95,7 +95,6 @@ int main() {
   /* ****************************************
    * Setup our meshes
    */
-
   std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
   std::array<component_mesh_t, max_entities> mesh_components;
   std::array<component_transform_t, max_entities> transform_components;
@@ -230,7 +229,24 @@ int main() {
           .set_renderpass(geometry_pass.renderpass())
           .set_vertex_program_path("./geometry.vert.spv")
           .set_fragment_program_path("./geometry.frag.spv")
-          .add_setlayout(geometry_pipeline_info_setlayout.get());
+          .add_setlayout(geometry_pipeline_info_setlayout.get())
+          .add_vertex_input_binding(
+              vk::VertexInputBindingDescription{}
+                  .setBinding(0)
+                  .setStride(sizeof(vertex_t))
+                  .setInputRate(vk::VertexInputRate::eVertex))
+          .add_vertex_input_attribute(
+              vk::VertexInputAttributeDescription{}
+                  .setBinding(0)
+                  .setLocation(0)
+                  .setFormat(vk::Format::eR32G32B32Sfloat)
+                  .setOffset(offsetof(vertex_t, position)))
+          .add_vertex_input_attribute(
+              vk::VertexInputAttributeDescription{}
+                  .setBinding(0)
+                  .setLocation(1)
+                  .setFormat(vk::Format::eR32G32B32Sfloat)
+                  .setOffset(offsetof(vertex_t, color)));
 
   alex::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
