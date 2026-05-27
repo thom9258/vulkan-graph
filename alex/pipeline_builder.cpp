@@ -12,6 +12,21 @@ pipeline_info_t &pipeline_info_t::set_extent(vk::Extent3D extent) {
   return *this;
 }
 
+pipeline_info_t &pipeline_info_t::set_polygon_mode(vk::PolygonMode mode) {
+  this->polygon_mode = polygon_mode;
+  return *this;
+}
+
+pipeline_info_t &pipeline_info_t::set_cull_mode(vk::CullModeFlags cull_mode) {
+  this->cull_mode = cull_mode;
+  return *this;
+}
+
+pipeline_info_t &pipeline_info_t::set_front_face(vk::FrontFace front_face) {
+  this->front_face = front_face;
+  return *this;
+}
+
 pipeline_info_t &pipeline_info_t::set_renderpass(vk::RenderPass renderpass) {
   this->renderpass = renderpass;
   return *this;

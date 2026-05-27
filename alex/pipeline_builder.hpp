@@ -4,12 +4,16 @@
 #include "core.hpp"
 
 #include <filesystem>
+#include <vulkan/vulkan_enums.hpp>
 
 namespace alex {
 
 struct pipeline_info_t {
   pipeline_info_t(vk::Device device);
   pipeline_info_t &set_extent(vk::Extent3D extent);
+  pipeline_info_t &set_polygon_mode(vk::PolygonMode mode);
+  pipeline_info_t &set_cull_mode(vk::CullModeFlags cull_mode);
+  pipeline_info_t &set_front_face(vk::FrontFace front_face);
   pipeline_info_t &set_renderpass(vk::RenderPass renderpass);
   pipeline_info_t &set_vertex_program_path(std::filesystem::path path);
   pipeline_info_t &set_fragment_program_path(std::filesystem::path path);

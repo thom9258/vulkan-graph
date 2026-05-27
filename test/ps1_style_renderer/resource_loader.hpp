@@ -47,7 +47,7 @@ struct model_load_info_t {
     bool generate_smooth_normals{false};
     bool limit_bone_weights{true};
     bool flip_uvs{true};
-    bool fix_infacing_normals{false};
+    bool fix_infacing_normals{true};
   } mesh_adapters;
 };
 

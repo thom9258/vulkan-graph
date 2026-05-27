@@ -35,8 +35,12 @@ struct draw_info_t {
 };
 
 struct component_mesh_t {
-  std::optional<alex::memory_buffer_t> vertices;
-  std::uint32_t vertices_length;
+  alex::memory_buffer_t* vertices{nullptr};
+  std::uint32_t vertices_length{0};
+
+  alex::memory_buffer_t* indices{nullptr};
+  std::uint32_t indices_length{0};
+
   vk::UniqueDescriptorPool uniform_descriptor_pool;
   alex::flightframe_array_t<std::optional<alex::direct_memory_buffer_t>>
       direct_uniforms;
@@ -60,11 +64,7 @@ using entity_pointer_t = manager_t::entity_pointer_t;
 
 } // namespace ecs
 
-struct vertex_t {
-  float position[3];
-  float color[3];
-};
-
+#if 0
 constexpr auto generate_cube(alex::memory::arena &arena, float r, float g,
                              float b) -> std::span<vertex_t> {
   sg_status status;
@@ -127,7 +127,6 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
   std::span<vertex_t> cube_vertices =
       generate_cube(*info.arena, info.r, info.g, info.b);
   mesh->vertices_length = cube_vertices.size();
-
   alex::direct_memory_buffer_info_t direct_cube_buffer_info;
   direct_cube_buffer_info.physical_device = info.core->physical_device();
   direct_cube_buffer_info.device = info.core->device();
@@ -221,3 +220,5 @@ ecs::entity_id_t add_cube_prefab(cube_prefab_info_t &info) {
 
   return cube;
 }
+
+#endif

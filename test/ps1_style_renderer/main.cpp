@@ -60,8 +60,8 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
-  vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 4),
-                             static_cast<std::int32_t>(window_info.height / 4),
+  vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width),
+                             static_cast<std::int32_t>(window_info.height),
                              1);
 
   alex::core_t core(core_info);
@@ -99,11 +99,12 @@ int main() {
    * Load resources
    */
   // TODO: we must add the ability to provide a staging scratch buffer
+  //       for optimal memory usage
   game::model_load_info_t chest_load_info;
   chest_load_info.core = &core;
-  chest_load_info.path = "/home/th/Assets/ChestWowStyle/Chest.obj";
-  auto chest = game::model_source_t::create(chest_load_info);
+  chest_load_info.path = "/home/th/Assets/smg/smg.obj";
 
+  auto chest = game::model_source_t::create(chest_load_info);
   if (!chest.has_value()) {
     std::println("resource load error: [code: {}] {}",
                  game::to_string(chest.error().code()), chest.error().error());
@@ -119,45 +120,86 @@ int main() {
   /* ****************************************
    * Setup entities
    */
-  cube_prefab_info_t cube_prefab_info;
-  cube_prefab_info.manager = &manager;
-  cube_prefab_info.core = &core;
-  cube_prefab_info.set_layout = geometry_pipeline_info_setlayout.get();
-  cube_prefab_info.arena = &init_arena;
-  cube_prefab_info.r = 1.0f;
-  cube_prefab_info.g = 0.0f;
-  cube_prefab_info.b = 0.0f;
-  cube_prefab_info.transform =
-      glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f)) *
-      glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+  ecs::entity_id_t chest_entity = manager.new_entity();
+  {
+    auto *transform =
+        manager.add_component<component_transform_t>(chest_entity);
+    transform->mat = glm::scale(glm::mat4(1.0f), glm::vec3(0.4f));
 
-  ecs::entity_id_t x_dir = add_cube_prefab(cube_prefab_info);
+    auto *mesh = manager.add_component<component_mesh_t>(chest_entity);
+    mesh->vertices =
+        &(chest.value().root().children.at(0).meshes.at(0).vertices.value());
+    mesh->vertices_length =
+        chest.value().root().children.at(0).meshes.at(0).vertices_length;
 
-  cube_prefab_info.r = 0.0f;
-  cube_prefab_info.g = 1.0f;
-  cube_prefab_info.b = 0.0f;
-  cube_prefab_info.transform =
-      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)) *
-      glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+    mesh->indices =
+        &(chest.value().root().children.at(0).meshes.at(0).indices.value());
+    mesh->indices_length =
+        chest.value().root().children.at(0).meshes.at(0).indices_length;
 
-  ecs::entity_id_t y_dir = add_cube_prefab(cube_prefab_info);
+    core.immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
+      draw_info_t draw_info;
 
-  cube_prefab_info.r = 0.0f;
-  cube_prefab_info.g = 0.0f;
-  cube_prefab_info.b = 1.0f;
-  cube_prefab_info.transform =
-      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 1.0f)) *
-      glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+      alex::direct_memory_buffer_info_t direct_uniform_info;
+      direct_uniform_info.physical_device = core.physical_device();
+      direct_uniform_info.device = core.device();
+      direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
+      direct_uniform_info.memory_size = sizeof(draw_info);
 
-  ecs::entity_id_t z_dir = add_cube_prefab(cube_prefab_info);
+      for (auto &uniform : mesh->direct_uniforms) {
+        uniform = alex::direct_memory_buffer_t(direct_uniform_info);
+        std::memcpy(uniform->memory_ptr(), &draw_info, sizeof(draw_info));
+      };
 
-  cube_prefab_info.r = 1.0f;
-  cube_prefab_info.g = 1.0f;
-  cube_prefab_info.b = 1.0f;
-  cube_prefab_info.transform = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+      for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+        alex::memory_buffer_info_t uniform_info;
+        uniform_info.physical_device = core.physical_device();
+        uniform_info.device = core.device();
+        uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
+        uniform_info.memory_size = direct_uniform_info.memory_size;
+        uniform = alex::memory_buffer_t(uniform_info);
 
-  ecs::entity_id_t center = add_cube_prefab(cube_prefab_info);
+        alex::memory_buffer_write_info_t write_info;
+        write_info.physical_device = core.physical_device();
+        write_info.device = core.device();
+        write_info.direct = &mesh->direct_uniforms[i].value();
+        write_info.write_size = uniform->memory_size();
+        write_info.commandbuffer = commandbuffer;
+        uniform->record_write(write_info);
+      }
 
+      std::vector<vk::DescriptorPoolSize> const pool_sizes{
+          vk::DescriptorPoolSize{}.setDescriptorCount(4).setType(
+              vk::DescriptorType::eUniformBuffer)};
+
+      auto pool_create_info =
+          vk::DescriptorPoolCreateInfo{}
+              .setPoolSizes(pool_sizes)
+              .setMaxSets(4)
+              .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+
+      mesh->uniform_descriptor_pool =
+          core.device().createDescriptorPoolUnique(pool_create_info);
+
+      alex::uniform_descriptorsets_info_t cube_descriptorsets_info;
+      cube_descriptorsets_info.physical_device = core.physical_device();
+      cube_descriptorsets_info.device = core.device();
+      cube_descriptorsets_info.set_count = 2;
+      cube_descriptorsets_info.layout = geometry_pipeline_info_setlayout.get();
+      cube_descriptorsets_info.pool = mesh->uniform_descriptor_pool.get();
+
+      mesh->descriptorsets.emplace(cube_descriptorsets_info);
+      for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+        alex::uniform_descriptorsets_update_info_t update_info;
+        update_info.device = core.device();
+        update_info.set_index = i;
+        update_info.buffer = &uniform.value();
+        update_info.buffer_offset = 0;
+        update_info.buffer_size = uniform->memory_size();
+        mesh->descriptorsets->update(update_info);
+      };
+    });
+  }
   /* ****************************************
    * Setup presentation context
    */
@@ -245,6 +287,9 @@ int main() {
   auto geometry_pipeline_info =
       alex::pipeline_info_t(core.device())
           .set_extent(render_extent)
+          .set_polygon_mode(vk::PolygonMode::eFill)
+          .set_cull_mode(vk::CullModeFlagBits::eBack)
+          .set_front_face(vk::FrontFace::eCounterClockwise)
           .set_renderpass(geometry_pass.renderpass())
           .set_vertex_program_path("./geometry.vert.spv")
           .set_fragment_program_path("./geometry.frag.spv")
@@ -252,20 +297,26 @@ int main() {
           .add_vertex_input_binding(
               vk::VertexInputBindingDescription{}
                   .setBinding(0)
-                  .setStride(sizeof(vertex_t))
+                  .setStride(sizeof(game::simple_vertex_t))
                   .setInputRate(vk::VertexInputRate::eVertex))
           .add_vertex_input_attribute(
               vk::VertexInputAttributeDescription{}
                   .setBinding(0)
                   .setLocation(0)
                   .setFormat(vk::Format::eR32G32B32Sfloat)
-                  .setOffset(offsetof(vertex_t, position)))
+                  .setOffset(offsetof(game::simple_vertex_t, position)))
           .add_vertex_input_attribute(
               vk::VertexInputAttributeDescription{}
                   .setBinding(0)
                   .setLocation(1)
                   .setFormat(vk::Format::eR32G32B32Sfloat)
-                  .setOffset(offsetof(vertex_t, color)));
+                  .setOffset(offsetof(game::simple_vertex_t, normal)))
+          .add_vertex_input_attribute(
+              vk::VertexInputAttributeDescription{}
+                  .setBinding(0)
+                  .setLocation(2)
+                  .setFormat(vk::Format::eR32G32B32Sfloat)
+                  .setOffset(offsetof(game::simple_vertex_t, color)));
 
   alex::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
@@ -497,10 +548,19 @@ int main() {
                     vk::PipelineBindPoint::eGraphics,
                     geometry_pipeline.layout(), 0, 1, &set, 0, nullptr);
 
-                std::vector<vk::DeviceSize> offsets = {0};
-                std::vector<vk::Buffer> buffers = {mesh->vertices->buffer()};
-                commandbuffer.bindVertexBuffers(0, 1, buffers.data(),
-                                                offsets.data());
+                {
+                  std::vector<vk::DeviceSize> offsets = {0};
+                  std::vector<vk::Buffer> buffers = {mesh->vertices->buffer()};
+                  commandbuffer.bindVertexBuffers(0, 1, buffers.data(),
+                                                  offsets.data());
+                }
+
+                {
+//                 vk::DeviceSize offset = 0;
+//                 vk::Buffer buffer = mesh->indices->buffer();
+//                 commandbuffer.bindIndexBuffer(buffer, offset,
+//                                               vk::IndexType::eUint32);
+                }
 
                 commandbuffer.draw(mesh->vertices_length, 1, 0, 0);
               }

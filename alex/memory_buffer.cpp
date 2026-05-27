@@ -4,15 +4,26 @@
 
 namespace alex {
 
+constexpr inline auto get_type_flag(memory_buffer_type_t type)
+    -> vk::BufferUsageFlagBits {
+  if (type == memory_buffer_type_t::uniform) {
+    return vk::BufferUsageFlagBits::eUniformBuffer;
+  } else if (type == memory_buffer_type_t::vertices) {
+    return vk::BufferUsageFlagBits::eVertexBuffer;
+  } else if (type == memory_buffer_type_t::indices) {
+    return vk::BufferUsageFlagBits::eIndexBuffer;
+  }
+
+  return vk::BufferUsageFlagBits::eUniformBuffer;
+}
+
 direct_memory_buffer_t::direct_memory_buffer_t(
     direct_memory_buffer_info_t &info)
     : _device{info.device} {
-  vk::BufferUsageFlags usage_flags = vk::BufferUsageFlagBits::eTransferSrc;
-  if (info.buffer_type == memory_buffer_type_t::uniform) {
-    usage_flags |= vk::BufferUsageFlagBits::eUniformBuffer;
-  } else if (info.buffer_type == memory_buffer_type_t::vertices) {
-    usage_flags |= vk::BufferUsageFlagBits::eVertexBuffer;
-  }
+
+  vk::BufferUsageFlags const usage_flags =
+      get_type_flag(info.buffer_type) | vk::BufferUsageFlagBits::eTransferSrc |
+      vk::BufferUsageFlagBits::eTransferDst;
 
   vk::MemoryPropertyFlags constexpr property_flags =
       vk::MemoryPropertyFlagBits::eHostVisible |
@@ -44,23 +55,20 @@ direct_memory_buffer_t::direct_memory_buffer_t(
                                       vk::MemoryMapFlags());
 }
 
-direct_memory_buffer_t::~direct_memory_buffer_t() {
-}
+direct_memory_buffer_t::~direct_memory_buffer_t() {}
 
 auto direct_memory_buffer_t::buffer() -> vk::Buffer { return _buffer.get(); }
 auto direct_memory_buffer_t::memory_size() -> std::size_t {
   return _memory_size;
 }
+
 auto direct_memory_buffer_t::memory_ptr() -> void * { return _memory_ptr; }
 
 memory_buffer_t::memory_buffer_t(memory_buffer_info_t &info)
     : _device{info.device} {
-  vk::BufferUsageFlags usage_flags = vk::BufferUsageFlagBits::eTransferDst;
-  if (info.buffer_type == memory_buffer_type_t::uniform) {
-    usage_flags |= vk::BufferUsageFlagBits::eUniformBuffer;
-  } else if (info.buffer_type == memory_buffer_type_t::vertices) {
-    usage_flags |= vk::BufferUsageFlagBits::eVertexBuffer;
-  }
+
+  vk::BufferUsageFlags const usage_flags =
+      get_type_flag(info.buffer_type) | vk::BufferUsageFlagBits::eTransferDst;
 
   vk::MemoryPropertyFlags constexpr property_flags =
       vk::MemoryPropertyFlagBits::eDeviceLocal;

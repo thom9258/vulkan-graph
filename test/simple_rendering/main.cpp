@@ -12,7 +12,7 @@
 #include "../utility/button.hpp"
 #include "../utility/sdl.hpp"
 
-#include "cube_prefab.hpp"
+#include "ecs.hpp"
 #include "orbit_camera.hpp"
 
 #include <chrono>
@@ -372,7 +372,6 @@ int main() {
 
     auto upload_task_id = alex::task_id_t(0);
     auto geometry_task_id = alex::task_id_t(1);
-    auto present_task_id = alex::task_id_t(2);
 
     taskgraphs[next_frame_info.flightframe] = alex::graph_t();
     alex::graph_t &graph = taskgraphs[next_frame_info.flightframe];
@@ -484,19 +483,11 @@ int main() {
               commandbuffer.endRenderPass();
             }));
 
-    graph.add_task(present_task_id,
-                   std::make_unique<alex::simple_task_t>(
-                       "present", [](vk::CommandBuffer commandbuffer) {}));
-
     graph.add_dependency(alex::dependency_info_t{.device = core.device(),
                                                  .parent = upload_task_id,
                                                  .child = geometry_task_id});
 
-    graph.add_dependency(alex::dependency_info_t{.device = core.device(),
-                                                 .parent = geometry_task_id,
-                                                 .child = present_task_id});
-
-    graph.set_end(present_task_id);
+    graph.set_end(geometry_task_id);
 
     vk::Semaphore graph_finished_semaphore =
         taskgraph_semaphores[next_frame_info.flightframe].get();

@@ -40,6 +40,18 @@ constexpr inline auto load_error_missing_root(const char *error)
 
 namespace util {
 
+template <typename TVertex>
+auto unindex_vertices(std::span<TVertex> vertices,
+                      std::span<std::uint32_t> indices)
+    -> std::vector<TVertex> {
+  std::vector<TVertex> unindexed;
+  unindexed.reserve(indices.size());
+
+  for (std::uint32_t index : indices)
+    unindexed.push_back(vertices[index]);
+  return unindexed;
+}
+
 constexpr auto to_glm(aiMatrix4x4 from) -> glm::mat4 {
   glm::mat4 to;
   // the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
@@ -95,7 +107,7 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
   std::vector<simple_vertex_t> vertices;
   vertices.reserve(mesh->mNumVertices);
   for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-    simple_vertex_t vertex;
+    simple_vertex_t vertex{};
     vertex.position[0] = mesh->mVertices[i].x;
     vertex.position[1] = mesh->mVertices[i].y;
     vertex.position[2] = mesh->mVertices[i].z;
@@ -107,8 +119,8 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
 
     if (mesh->mColors[0] != nullptr) {
       vertex.color[0] = mesh->mColors[0][i].r;
-      vertex.color[0] = mesh->mColors[0][i].g;
-      vertex.color[0] = mesh->mColors[0][i].b;
+      vertex.color[1] = mesh->mColors[0][i].g;
+      vertex.color[2] = mesh->mColors[0][i].b;
     } else {
       vertex.color[0] = 1.0f;
       vertex.color[1] = 1.0f;
@@ -120,13 +132,16 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
 
   // NOTE we triangulate so we expect 3 indices per face
   std::vector<unsigned int> indices;
-  indices.reserve(mesh->mNumFaces * 3);
   for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
     aiFace face = mesh->mFaces[i];
     for (std::size_t j = 0; j < face.mNumIndices; j++) {
       indices.push_back(face.mIndices[j]);
     }
   }
+
+  std::vector<simple_vertex_t> unindexed =
+      util::unindex_vertices<simple_vertex_t>(vertices, indices);
+
 
   alex::direct_memory_buffer_info_t direct_vertices_buffer_info;
   direct_vertices_buffer_info.physical_device = info.core->physical_device();
@@ -160,7 +175,8 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
   alex::memory_buffer_info_t indices_buffer_info;
   indices_buffer_info.physical_device = info.core->physical_device();
   indices_buffer_info.device = info.core->device();
-  indices_buffer_info.buffer_type = alex::memory_buffer_type_t::vertices;
+  indices_buffer_info.buffer_type = alex::memory_buffer_type_t::indices;
+
   indices_buffer_info.memory_size = direct_indices_buffer_info.memory_size;
 
   mesh_t result;
@@ -240,7 +256,9 @@ auto model_source_t::create(model_load_info_t &info)
   chrono_time_point_t start = chrono_clock_t::now();
 
   std::uint32_t const load_flags = std::invoke([&info]() {
-    std::uint32_t flags = aiProcess_GenNormals | aiProcess_Triangulate;
+  #if 0
+    std::uint32_t flags = aiProcess_GenNormals | aiProcess_Triangulate ;
+
     if (info.mesh_adapters.generate_smooth_normals) {
       flags |= aiProcess_GenSmoothNormals;
     }
@@ -248,11 +266,16 @@ auto model_source_t::create(model_load_info_t &info)
       flags |= aiProcess_LimitBoneWeights;
     }
     if (info.mesh_adapters.fix_infacing_normals) {
-      flags |= aiProcess_FixInfacingNormals;
+      //flags |= aiProcess_FixInfacingNormals;
     }
     if (info.mesh_adapters.flip_uvs) {
       flags |= aiProcess_FlipUVs;
     }
+#endif
+
+  std::uint32_t constexpr flags =
+      aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs |
+      aiProcess_FixInfacingNormals | aiProcess_LimitBoneWeights;
 
     return flags;
   });
@@ -277,7 +300,7 @@ auto model_source_t::create(model_load_info_t &info)
     model_source_t model_source(info.path, std::move(*model));
     model_source.start = start;
     model_source.end = chrono_clock_t::now();
-    return std::move(model_source);
+    return model_source;
   }
 
   return std::unexpected(load_error_missing_root(importer.GetErrorString()));

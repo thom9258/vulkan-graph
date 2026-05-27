@@ -9,6 +9,7 @@ enum class memory_buffer_type_t {
   basic,
   uniform,
   vertices,
+  indices,
 };
 
 struct direct_memory_buffer_info_t {
