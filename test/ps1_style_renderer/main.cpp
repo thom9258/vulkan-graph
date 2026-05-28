@@ -60,9 +60,8 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
-  vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width),
-                             static_cast<std::int32_t>(window_info.height),
-                             1);
+  vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 4),
+                             static_cast<std::int32_t>(window_info.height / 4), 1);
 
   alex::core_t core(core_info);
 
@@ -102,7 +101,8 @@ int main() {
   //       for optimal memory usage
   game::model_load_info_t chest_load_info;
   chest_load_info.core = &core;
-  chest_load_info.path = "/home/th/Assets/smg/smg.obj";
+  // chest_load_info.path = "/home/th/Assets/smg/smg.obj";
+  chest_load_info.path = "/home/th/Assets/ChestWowStyle/Chest.obj";
 
   auto chest = game::model_source_t::create(chest_load_info);
   if (!chest.has_value()) {
@@ -124,7 +124,7 @@ int main() {
   {
     auto *transform =
         manager.add_component<component_transform_t>(chest_entity);
-    transform->mat = glm::scale(glm::mat4(1.0f), glm::vec3(0.4f));
+    transform->mat = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
 
     auto *mesh = manager.add_component<component_mesh_t>(chest_entity);
     mesh->vertices =
@@ -328,11 +328,11 @@ int main() {
   alex::flightframe_array_t<alex::graph_t> taskgraphs;
 
   float const camera_radius = 4.0f;
-  glm::vec3 const target(0.0, 0.0, 0);
+  glm::vec3 const target(0.0f, 0.5f, 0.0f);
   OrbitCamera camera(target, camera_radius);
 
   const float aspect = window_extent.aspect();
-  const float near_plane = 1.0f, far_plane = 20.0f;
+  const float near_plane = 0.1f, far_plane = 200.0f;
   glm::mat4 const projection = std::invoke([&]() {
     glm::mat4 p =
         glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
@@ -355,6 +355,8 @@ int main() {
     button_t d;
     button_t e;
     button_t q;
+    button_t forward;
+    button_t backward;
   } buttons;
 
   bool running = true;
@@ -393,6 +395,12 @@ int main() {
         case SDLK_q:
           buttons.q.release();
           break;
+        case SDLK_UP:
+          buttons.forward.release();
+          break;
+        case SDLK_DOWN:
+          buttons.backward.release();
+          break;
         }
         break;
 
@@ -419,10 +427,18 @@ int main() {
         case SDLK_q:
           buttons.q.press();
           break;
+        case SDLK_UP:
+          buttons.forward.press();
+          break;
+        case SDLK_DOWN:
+          buttons.backward.press();
+          break;
         }
         break;
       }
     }
+
+static glm::mat4 chest_transform(glm::scale(glm::mat4(1.0f), glm::vec3(0.05f)));
 
     if (buttons.w.is_pressed()) {
       camera.add_rotation(movespeed, 0.0f);
@@ -442,6 +458,13 @@ int main() {
     if (buttons.q.is_pressed()) {
       camera.set_radius(camera.radius() - movespeed);
     }
+    if (buttons.forward.is_pressed()) {
+		chest_transform = glm::translate(chest_transform, glm::vec3(movespeed, 0.0f, 0.0f));
+    }
+    if (buttons.backward.is_pressed()) {
+		chest_transform = glm::translate(chest_transform, glm::vec3(-movespeed, 0.0f, 0.0f));
+    }
+
 
     alex::next_frame_info_t next_frame_info =
         presenter.wait_for_next_frame(core.device());
@@ -472,7 +495,8 @@ int main() {
                 draw_info_t draw_info;
                 draw_info.view = camera.view();
                 draw_info.projection = projection;
-                draw_info.model = transform->mat;
+              //  draw_info.model = transform->mat;
+                draw_info.model = chest_transform;
                 std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe]
                                 ->memory_ptr(),
                             &draw_info, sizeof(draw_info));
@@ -556,13 +580,13 @@ int main() {
                 }
 
                 {
-//                 vk::DeviceSize offset = 0;
-//                 vk::Buffer buffer = mesh->indices->buffer();
-//                 commandbuffer.bindIndexBuffer(buffer, offset,
-//                                               vk::IndexType::eUint32);
+                  vk::DeviceSize offset = 0;
+                  vk::Buffer buffer = mesh->indices->buffer();
+                  commandbuffer.bindIndexBuffer(buffer, offset,
+                                                vk::IndexType::eUint32);
                 }
 
-                commandbuffer.draw(mesh->vertices_length, 1, 0, 0);
+                commandbuffer.drawIndexed(mesh->indices_length, 1, 0, 0, 0);
               }
 
               commandbuffer.endRenderPass();

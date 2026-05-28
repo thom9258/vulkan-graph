@@ -139,10 +139,6 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
     }
   }
 
-  std::vector<simple_vertex_t> unindexed =
-      util::unindex_vertices<simple_vertex_t>(vertices, indices);
-
-
   alex::direct_memory_buffer_info_t direct_vertices_buffer_info;
   direct_vertices_buffer_info.physical_device = info.core->physical_device();
   direct_vertices_buffer_info.device = info.core->device();
