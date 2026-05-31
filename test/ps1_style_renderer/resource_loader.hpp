@@ -4,13 +4,14 @@
 #include <alex/memory_buffer.hpp>
 #include <alex/texture.hpp>
 
-#include "mesh.hpp"
 #include "include_assimp.hpp"
 #include "include_glm.hpp"
+#include "mesh.hpp"
+#include "bitmap.hpp"
 
 #include <expected>
-#include <optional>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,9 +20,11 @@
 
 namespace game {
 
-
 struct material_t {
-	std::optional<alex::texture_t> diffuse;
+  std::string name;
+  std::optional<alex::texture_t> diffuse;
+  std::optional<alex::texture_t> specular;
+  std::optional<alex::texture_t> ambient;
 };
 
 struct mesh_t {
@@ -29,6 +32,7 @@ struct mesh_t {
   std::uint32_t vertices_length{0};
   std::optional<alex::memory_buffer_t> indices;
   std::uint32_t indices_length{0};
+  std::optional<std::string> material;
 };
 
 struct model_t {
@@ -36,11 +40,10 @@ struct model_t {
   std::vector<model_t> children;
   glm::mat4 transform;
   std::vector<mesh_t> meshes;
-  std::vector<material_t> materials;
 };
 
 struct model_load_info_t {
-  alex::core_t* core{nullptr};
+  alex::core_t *core{nullptr};
   std::filesystem::path path{};
 
   struct {
@@ -92,7 +95,8 @@ constexpr auto to_string(load_error_t::code_t e) -> std::string_view {
 
 class model_source_t {
 public:
-  model_source_t(std::filesystem::path path, model_t root);
+  model_source_t(std::filesystem::path path, model_t root,
+                 std::vector<material_t> materials);
   model_source_t(const model_source_t &) = delete;
   model_source_t(model_source_t &&) = default;
   model_source_t &operator=(const model_source_t &) = delete;
@@ -105,15 +109,16 @@ public:
   auto path() const -> std::filesystem::path;
   auto loadtime_seconds() const -> double;
   auto root() -> model_t &;
+  auto materials() -> std::span<material_t>;
 
 private:
-
   using chrono_clock_t = std::chrono::high_resolution_clock;
   using chrono_time_point_t = std::chrono::time_point<chrono_clock_t>;
   chrono_time_point_t start;
   chrono_time_point_t end;
   std::filesystem::path _path;
   model_t _root;
+  std::vector<material_t> _materials;
 };
 
 } // namespace game

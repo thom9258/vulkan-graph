@@ -19,8 +19,6 @@
 #include <alex/memory_buffer.hpp>
 #include <alex/uniform_descriptorsets.hpp>
 
-#include "alex/uniform_descriptorsets.hpp"
-
 #define SIMPLE_GEOMETRY_IMPLEMENTATION
 #include <simple_geometry.h>
 
@@ -44,8 +42,12 @@ struct component_mesh_t {
   vk::UniqueDescriptorPool uniform_descriptor_pool;
   alex::flightframe_array_t<std::optional<alex::direct_memory_buffer_t>>
       direct_uniforms;
+
   alex::flightframe_array_t<std::optional<alex::memory_buffer_t>> uniforms;
-  std::optional<alex::uniform_descriptorsets_t> descriptorsets;
+  std::vector<vk::UniqueDescriptorSet> uniform_descriptorsets;
+
+  vk::UniqueDescriptorPool diffuse_descriptor_pool;
+  std::vector<vk::UniqueDescriptorSet> diffuse_descriptorsets;
 };
 
 struct component_transform_t {

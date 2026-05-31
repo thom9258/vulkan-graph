@@ -12,6 +12,7 @@
 #include "../utility/button.hpp"
 #include "../utility/sdl.hpp"
 
+#include "bitmap.hpp"
 #include "ecs.hpp"
 #include "orbit_camera.hpp"
 #include "resource_loader.hpp"
@@ -27,6 +28,17 @@
 #include <vulkan/vulkan_structs.hpp>
 
 using namespace std::literals;
+
+auto constexpr print_model_names(int indent, game::model_t &model) -> void {
+  for (int i = 0; i < indent; i++) {
+    std::print(" ");
+  }
+
+  std::println("{}", model.name);
+  for (game::model_t &child : model.children) {
+    print_model_names(indent++, child);
+  }
+}
 
 std::size_t constexpr mb = 1'000'000;
 
@@ -61,7 +73,8 @@ int main() {
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
   vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 4),
-                             static_cast<std::int32_t>(window_info.height / 4), 1);
+                             static_cast<std::int32_t>(window_info.height / 4),
+                             1);
 
   alex::core_t core(core_info);
 
@@ -70,136 +83,38 @@ int main() {
    */
   sdl::window_extent_t window_extent = window.window_extent();
 
-  std::array<vk::DescriptorSetLayoutBinding,
-             1> constexpr frame_uniform_bindings{
+  std::vector<vk::DescriptorSetLayoutBinding> frame_uniform_bindings({
       vk::DescriptorSetLayoutBinding{}
           .setStageFlags(vk::ShaderStageFlagBits::eVertex)
           .setDescriptorType(vk::DescriptorType::eUniformBuffer)
           .setBinding(0)
-          .setDescriptorCount(1)};
+          .setDescriptorCount(1),
+  });
 
-  const auto uniform_setinfo =
+  const auto frame_uniform_setinfo =
       vk::DescriptorSetLayoutCreateInfo{}
           .setFlags(vk::DescriptorSetLayoutCreateFlags())
           .setBindings(frame_uniform_bindings);
 
-  vk::UniqueDescriptorSetLayout geometry_pipeline_info_setlayout =
-      core.device().createDescriptorSetLayoutUnique(uniform_setinfo, nullptr);
+  vk::UniqueDescriptorSetLayout geometry_pipeline_frame_uniform_setlayout =
+      core.device().createDescriptorSetLayoutUnique(frame_uniform_setinfo,
+                                                    nullptr);
 
-  /* ****************************************
-   * Setup ecs
-   */
-  std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
-  std::array<component_mesh_t, max_entities> mesh_components;
-  std::array<component_transform_t, max_entities> transform_components;
-  ecs::manager_t manager(entity_memory, mesh_components, transform_components);
+  std::vector<vk::DescriptorSetLayoutBinding> diffuse_bindings(
+      {vk::DescriptorSetLayoutBinding{}
+           .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+           .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+           .setBinding(0)
 
-  /* ****************************************
-   * Load resources
-   */
-  // TODO: we must add the ability to provide a staging scratch buffer
-  //       for optimal memory usage
-  game::model_load_info_t chest_load_info;
-  chest_load_info.core = &core;
-  // chest_load_info.path = "/home/th/Assets/smg/smg.obj";
-  chest_load_info.path = "/home/th/Assets/ChestWowStyle/Chest.obj";
+           .setDescriptorCount(1)});
+  const auto diffuse_setinfo =
+      vk::DescriptorSetLayoutCreateInfo{}
+          .setFlags(vk::DescriptorSetLayoutCreateFlags())
+          .setBindings(diffuse_bindings);
 
-  auto chest = game::model_source_t::create(chest_load_info);
-  if (!chest.has_value()) {
-    std::println("resource load error: [code: {}] {}",
-                 game::to_string(chest.error().code()), chest.error().error());
-    return 1;
-  }
+  vk::UniqueDescriptorSetLayout geometry_pipeline_diffuse_setlayout =
+      core.device().createDescriptorSetLayoutUnique(diffuse_setinfo, nullptr);
 
-  std::println("model: (loadtime: {}s) {}", chest.value().loadtime_seconds(),
-               chest.value().root().name);
-
-  for (auto &child : chest.value().root().children)
-    std::println("  {}", child.name);
-
-  /* ****************************************
-   * Setup entities
-   */
-  ecs::entity_id_t chest_entity = manager.new_entity();
-  {
-    auto *transform =
-        manager.add_component<component_transform_t>(chest_entity);
-    transform->mat = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
-
-    auto *mesh = manager.add_component<component_mesh_t>(chest_entity);
-    mesh->vertices =
-        &(chest.value().root().children.at(0).meshes.at(0).vertices.value());
-    mesh->vertices_length =
-        chest.value().root().children.at(0).meshes.at(0).vertices_length;
-
-    mesh->indices =
-        &(chest.value().root().children.at(0).meshes.at(0).indices.value());
-    mesh->indices_length =
-        chest.value().root().children.at(0).meshes.at(0).indices_length;
-
-    core.immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
-      draw_info_t draw_info;
-
-      alex::direct_memory_buffer_info_t direct_uniform_info;
-      direct_uniform_info.physical_device = core.physical_device();
-      direct_uniform_info.device = core.device();
-      direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-      direct_uniform_info.memory_size = sizeof(draw_info);
-
-      for (auto &uniform : mesh->direct_uniforms) {
-        uniform = alex::direct_memory_buffer_t(direct_uniform_info);
-        std::memcpy(uniform->memory_ptr(), &draw_info, sizeof(draw_info));
-      };
-
-      for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
-        alex::memory_buffer_info_t uniform_info;
-        uniform_info.physical_device = core.physical_device();
-        uniform_info.device = core.device();
-        uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
-        uniform_info.memory_size = direct_uniform_info.memory_size;
-        uniform = alex::memory_buffer_t(uniform_info);
-
-        alex::memory_buffer_write_info_t write_info;
-        write_info.physical_device = core.physical_device();
-        write_info.device = core.device();
-        write_info.direct = &mesh->direct_uniforms[i].value();
-        write_info.write_size = uniform->memory_size();
-        write_info.commandbuffer = commandbuffer;
-        uniform->record_write(write_info);
-      }
-
-      std::vector<vk::DescriptorPoolSize> const pool_sizes{
-          vk::DescriptorPoolSize{}.setDescriptorCount(4).setType(
-              vk::DescriptorType::eUniformBuffer)};
-
-      auto pool_create_info =
-          vk::DescriptorPoolCreateInfo{}
-              .setPoolSizes(pool_sizes)
-              .setMaxSets(4)
-              .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
-
-      mesh->uniform_descriptor_pool =
-          core.device().createDescriptorPoolUnique(pool_create_info);
-
-      alex::uniform_descriptorsets_info_t cube_descriptorsets_info;
-      cube_descriptorsets_info.physical_device = core.physical_device();
-      cube_descriptorsets_info.device = core.device();
-      cube_descriptorsets_info.set_count = 2;
-      cube_descriptorsets_info.layout = geometry_pipeline_info_setlayout.get();
-      cube_descriptorsets_info.pool = mesh->uniform_descriptor_pool.get();
-
-      mesh->descriptorsets.emplace(cube_descriptorsets_info);
-      for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
-        alex::uniform_descriptorsets_update_info_t update_info;
-        update_info.device = core.device();
-        update_info.set_index = i;
-        update_info.buffer = &uniform.value();
-        update_info.buffer_offset = 0;
-        update_info.buffer_size = uniform->memory_size();
-        mesh->descriptorsets->update(update_info);
-      };
-    });
-  }
   /* ****************************************
    * Setup presentation context
    */
@@ -293,7 +208,8 @@ int main() {
           .set_renderpass(geometry_pass.renderpass())
           .set_vertex_program_path("./geometry.vert.spv")
           .set_fragment_program_path("./geometry.frag.spv")
-          .add_setlayout(geometry_pipeline_info_setlayout.get())
+          .add_setlayout(geometry_pipeline_frame_uniform_setlayout.get())
+          .add_setlayout(geometry_pipeline_diffuse_setlayout.get())
           .add_vertex_input_binding(
               vk::VertexInputBindingDescription{}
                   .setBinding(0)
@@ -316,7 +232,13 @@ int main() {
                   .setBinding(0)
                   .setLocation(2)
                   .setFormat(vk::Format::eR32G32B32Sfloat)
-                  .setOffset(offsetof(game::simple_vertex_t, color)));
+                  .setOffset(offsetof(game::simple_vertex_t, color)))
+          .add_vertex_input_attribute(
+              vk::VertexInputAttributeDescription{}
+                  .setBinding(0)
+                  .setLocation(3)
+                  .setFormat(vk::Format::eR32G32Sfloat)
+                  .setOffset(offsetof(game::simple_vertex_t, texcoord)));
 
   alex::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
@@ -326,6 +248,289 @@ int main() {
   }
 
   alex::flightframe_array_t<alex::graph_t> taskgraphs;
+
+  /* ****************************************
+   * Setup ecs
+   */
+  std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
+  std::array<component_mesh_t, max_entities> mesh_components;
+  std::array<component_transform_t, max_entities> transform_components;
+  ecs::manager_t manager(entity_memory, mesh_components, transform_components);
+
+  /* ****************************************
+   * Load resources
+   */
+  // TODO: we must add the ability to provide a staging scratch buffer
+  //       for optimal memory usage
+  game::model_load_info_t chest_load_info;
+  chest_load_info.core = &core;
+  chest_load_info.path = "/home/th/Assets/ChestWowStyle/Chest.obj";
+  // chest_load_info.path = "/home/th/Assets/Fox/glTF/Fox.gltf";
+  auto chest = game::model_source_t::create(chest_load_info);
+  if (!chest.has_value()) {
+    std::println("resource load error: [code: {}] {}",
+                 game::to_string(chest.error().code()), chest.error().error());
+    return 1;
+  }
+
+  std::println("model: (loadtime: {}s) {}", chest.value().loadtime_seconds(),
+               chest.value().root().name);
+
+  print_model_names(1, chest.value().root());
+
+  auto chest_diffuse_bitmap = game::bitmap_t::create(
+      "/home/th/Assets/ChestWowStyle/diffuse.tga", game::bitmap_format_t::rgba);
+
+  if (!chest_diffuse_bitmap.has_value()) {
+    std::println("Could not load chest diffuse bitmap");
+    return 1;
+  }
+
+  alex::direct_memory_buffer_t chest_diffuse_buffer =
+      chest_diffuse_bitmap->make_direct_buffer(core.physical_device(),
+                                               core.device());
+
+  const vk::Format chest_diffuse_texture_format =
+      game::to_vk_format(chest_diffuse_bitmap->format());
+
+  alex::texture_info_t chest_diffuse_texture_info;
+  chest_diffuse_texture_info.physical_device = core.physical_device();
+  chest_diffuse_texture_info.device = core.device();
+  chest_diffuse_texture_info.extent =
+      vk::Extent2D{static_cast<std::uint32_t>(chest_diffuse_bitmap->width()),
+                   static_cast<std::uint32_t>(chest_diffuse_bitmap->height())};
+  chest_diffuse_texture_info.format = chest_diffuse_texture_format;
+
+  chest_diffuse_texture_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
+  chest_diffuse_texture_info.usage =
+      vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
+
+  alex::texture_t chest_diffuse_texture(chest_diffuse_texture_info);
+
+  core.immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
+    // Transition image to color override
+    {
+      auto range = vk::ImageSubresourceRange{}
+                       .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                       .setBaseMipLevel(0)
+                       .setLevelCount(1)
+                       .setBaseArrayLayer(0)
+                       .setLayerCount(1);
+
+      auto barrier = vk::ImageMemoryBarrier{}
+                         .setOldLayout(vk::ImageLayout::eUndefined)
+                         .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+                         .setImage(chest_diffuse_texture.image())
+                         .setSubresourceRange(range)
+                         .setSrcAccessMask(vk::AccessFlags())
+                         .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+      commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
+                                    vk::PipelineStageFlagBits::eTransfer,
+                                    vk::DependencyFlags(), nullptr, nullptr,
+                                    barrier);
+    }
+
+    // Copy buffer into image
+    {
+      auto layer = vk::ImageSubresourceLayers{}
+                       .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                       .setMipLevel(0)
+                       .setBaseArrayLayer(0)
+                       .setLayerCount(1);
+
+      const auto offset = vk::Offset3D{}.setX(0).setY(0).setZ(0);
+
+      const auto extent = vk::Extent3D{}
+                              .setWidth(chest_diffuse_bitmap->width())
+                              .setHeight(chest_diffuse_bitmap->height())
+                              .setDepth(1);
+
+      auto region = vk::BufferImageCopy{}
+                        .setBufferOffset(0)
+                        .setBufferRowLength(0)
+                        .setBufferImageHeight(0)
+                        .setImageSubresource(layer)
+                        .setImageOffset(offset)
+                        .setImageExtent(extent);
+
+      commandbuffer.copyBufferToImage(
+          chest_diffuse_buffer.buffer(), chest_diffuse_texture.image(),
+          vk::ImageLayout::eTransferDstOptimal, region);
+    }
+
+    // Transfer image to shader readonly optimal
+    {
+      const auto source_range =
+          vk::ImageSubresourceRange{}
+              .setAspectMask(vk::ImageAspectFlagBits::eColor)
+              .setBaseMipLevel(0)
+              .setLevelCount(1)
+              .setBaseArrayLayer(0)
+              .setLayerCount(1);
+
+      auto barrier = vk::ImageMemoryBarrier{}
+                         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+                         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+                         .setImage(chest_diffuse_texture.image())
+                         .setSubresourceRange(source_range)
+                         .setSrcAccessMask(vk::AccessFlags())
+                         .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+      commandbuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
+                                    vk::PipelineStageFlagBits::eTransfer,
+                                    vk::DependencyFlags(), nullptr, nullptr,
+                                    barrier);
+    }
+  });
+
+  // Construct a sampler for the texture
+  const auto features = core.physical_device().getFeatures();
+  const auto properties = core.physical_device().getProperties();
+  const auto max_anisotropy =
+      features.samplerAnisotropy
+          ? std::min(4.0f, properties.limits.maxSamplerAnisotropy)
+          : 1.0f;
+
+  const vk::Filter filter = vk::Filter::eNearest;
+  const auto sampler_info =
+      vk::SamplerCreateInfo{}
+          .setMagFilter(filter)
+          .setMinFilter(filter)
+          .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+          .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+          .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+          .setAnisotropyEnable(features.samplerAnisotropy)
+          .setMaxAnisotropy(max_anisotropy)
+          .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+          .setUnnormalizedCoordinates(false)
+          .setCompareEnable(false)
+          .setCompareOp(vk::CompareOp::eAlways)
+          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+          .setMipLodBias(0.0f)
+          .setMinLod(0.0f)
+          .setMaxLod(0.0f);
+
+  vk::UniqueSampler diffuse_texture_sampler =
+      core.device().createSamplerUnique(sampler_info);
+
+  auto allocated_diffuse_sampler_descriptorsets =
+      core.allocate_repeated_descriptorsets(
+          geometry_pipeline_diffuse_setlayout.get(),
+          vk::DescriptorType::eCombinedImageSampler, 2);
+
+  /* ****************************************
+   * Setup entities
+   */
+  ecs::entity_id_t chest_entity = manager.new_entity();
+  {
+    auto *transform =
+        manager.add_component<component_transform_t>(chest_entity);
+    transform->mat = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
+
+    auto *mesh = manager.add_component<component_mesh_t>(chest_entity);
+    mesh->vertices =
+        &(chest.value().root().children.at(0).meshes.at(0).vertices.value());
+    mesh->vertices_length =
+        chest.value().root().children.at(0).meshes.at(0).vertices_length;
+
+    mesh->indices =
+        &(chest.value().root().children.at(0).meshes.at(0).indices.value());
+    mesh->indices_length =
+        chest.value().root().children.at(0).meshes.at(0).indices_length;
+
+    core.immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
+      draw_info_t draw_info;
+
+      alex::direct_memory_buffer_info_t direct_uniform_info;
+      direct_uniform_info.physical_device = core.physical_device();
+      direct_uniform_info.device = core.device();
+      direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
+      direct_uniform_info.memory_size = sizeof(draw_info);
+
+      for (auto &uniform : mesh->direct_uniforms) {
+        uniform = alex::direct_memory_buffer_t(direct_uniform_info);
+        std::memcpy(uniform->memory_ptr(), &draw_info, sizeof(draw_info));
+      };
+
+      for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+        alex::memory_buffer_info_t uniform_info;
+        uniform_info.physical_device = core.physical_device();
+        uniform_info.device = core.device();
+        uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
+        uniform_info.memory_size = direct_uniform_info.memory_size;
+        uniform = alex::memory_buffer_t(uniform_info);
+
+        alex::memory_buffer_write_info_t write_info;
+        write_info.physical_device = core.physical_device();
+        write_info.device = core.device();
+        write_info.direct = &mesh->direct_uniforms[i].value();
+        write_info.write_size = uniform->memory_size();
+        write_info.commandbuffer = commandbuffer;
+        uniform->record_write(write_info);
+      }
+
+      auto allocated_frame_uniform_descriptorsets =
+          core.allocate_repeated_descriptorsets(
+              geometry_pipeline_frame_uniform_setlayout.get(),
+              vk::DescriptorType::eUniformBuffer, 2);
+
+      mesh->uniform_descriptor_pool =
+          std::move(allocated_frame_uniform_descriptorsets.pool);
+      mesh->uniform_descriptorsets =
+          std::move(allocated_frame_uniform_descriptorsets.sets);
+
+      for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+        const auto buffer_info = vk::DescriptorBufferInfo{}
+                                     .setBuffer(uniform->buffer())
+                                     .setOffset(0)
+                                     .setRange(uniform->memory_size());
+
+        const std::array<vk::WriteDescriptorSet, 1> writes{
+            vk::WriteDescriptorSet{}
+                .setDstBinding(0)
+                .setDstArrayElement(0)
+                .setDstSet(mesh->uniform_descriptorsets[i].get())
+                .setDescriptorCount(1)
+                .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                .setBufferInfo(buffer_info)};
+
+        core.device().updateDescriptorSets(writes.size(), writes.data(), 0,
+                                           nullptr);
+      }
+
+      auto allocated_diffuse_descriptorsets =
+          core.allocate_repeated_descriptorsets(
+              geometry_pipeline_diffuse_setlayout.get(),
+              vk::DescriptorType::eCombinedImageSampler, 2);
+
+      mesh->diffuse_descriptor_pool =
+          std::move(allocated_diffuse_descriptorsets.pool);
+      mesh->diffuse_descriptorsets =
+          std::move(allocated_diffuse_descriptorsets.sets);
+
+      for (vk::UniqueDescriptorSet &diffuse_set :
+           mesh->diffuse_descriptorsets) {
+        const auto image_info =
+            vk::DescriptorImageInfo{}
+                .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+                .setSampler(diffuse_texture_sampler.get())
+                .setImageView(chest_diffuse_texture.view());
+
+        const std::array<vk::WriteDescriptorSet, 1> writes{
+            vk::WriteDescriptorSet{}
+                .setDstBinding(0)
+                .setDstArrayElement(0)
+                .setDstSet(diffuse_set.get())
+                .setDescriptorCount(1)
+                .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                .setImageInfo(image_info)};
+
+        core.device().updateDescriptorSets(writes.size(), writes.data(), 0,
+                                           nullptr);
+      }
+    });
+  }
 
   float const camera_radius = 4.0f;
   glm::vec3 const target(0.0f, 0.5f, 0.0f);
@@ -438,7 +643,8 @@ int main() {
       }
     }
 
-static glm::mat4 chest_transform(glm::scale(glm::mat4(1.0f), glm::vec3(0.05f)));
+    static glm::mat4 chest_transform(
+        glm::scale(glm::mat4(1.0f), glm::vec3(0.05f)));
 
     if (buttons.w.is_pressed()) {
       camera.add_rotation(movespeed, 0.0f);
@@ -459,12 +665,13 @@ static glm::mat4 chest_transform(glm::scale(glm::mat4(1.0f), glm::vec3(0.05f)));
       camera.set_radius(camera.radius() - movespeed);
     }
     if (buttons.forward.is_pressed()) {
-		chest_transform = glm::translate(chest_transform, glm::vec3(movespeed, 0.0f, 0.0f));
+      chest_transform =
+          glm::translate(chest_transform, glm::vec3(movespeed, 0.0f, 0.0f));
     }
     if (buttons.backward.is_pressed()) {
-		chest_transform = glm::translate(chest_transform, glm::vec3(-movespeed, 0.0f, 0.0f));
+      chest_transform =
+          glm::translate(chest_transform, glm::vec3(-movespeed, 0.0f, 0.0f));
     }
-
 
     alex::next_frame_info_t next_frame_info =
         presenter.wait_for_next_frame(core.device());
@@ -495,7 +702,7 @@ static glm::mat4 chest_transform(glm::scale(glm::mat4(1.0f), glm::vec3(0.05f)));
                 draw_info_t draw_info;
                 draw_info.view = camera.view();
                 draw_info.projection = projection;
-              //  draw_info.model = transform->mat;
+                //  draw_info.model = transform->mat;
                 draw_info.model = chest_transform;
                 std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe]
                                 ->memory_ptr(),
@@ -565,12 +772,24 @@ static glm::mat4 chest_transform(glm::scale(glm::mat4(1.0f), glm::vec3(0.05f)));
                    entities | std::views::take(entity_count)) {
                 auto *mesh = manager.get_component<component_mesh_t>(entity);
 
-                vk::DescriptorSet set =
-                    mesh->descriptorsets->get_set(next_frame_info.flightframe);
+                {
+                  vk::DescriptorSet uniform =
+                      mesh->uniform_descriptorsets[next_frame_info.flightframe]
+                          .get();
 
-                commandbuffer.bindDescriptorSets(
-                    vk::PipelineBindPoint::eGraphics,
-                    geometry_pipeline.layout(), 0, 1, &set, 0, nullptr);
+                  commandbuffer.bindDescriptorSets(
+                      vk::PipelineBindPoint::eGraphics,
+                      geometry_pipeline.layout(), 0, 1, &uniform, 0, nullptr);
+                }
+                {
+                  vk::DescriptorSet diffuse =
+                      mesh->diffuse_descriptorsets[next_frame_info.flightframe]
+                          .get();
+
+                  commandbuffer.bindDescriptorSets(
+                      vk::PipelineBindPoint::eGraphics,
+                      geometry_pipeline.layout(), 1, 1, &diffuse, 0, nullptr);
+                }
 
                 {
                   std::vector<vk::DeviceSize> offsets = {0};

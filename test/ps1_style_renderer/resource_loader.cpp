@@ -1,9 +1,17 @@
 #include "resource_loader.hpp"
 
+#include "alex/memory_buffer.hpp"
+#include "alex/texture.hpp"
+
+#include <assimp/material.h>
 #include <assimp/postprocess.h>
+
 #include <expected>
 #include <functional>
+#include <optional>
+#include <print>
 #include <utility>
+#include <vulkan/vulkan_enums.hpp>
 
 namespace game {
 
@@ -91,14 +99,78 @@ constexpr auto to_glm(aiQuaternion other) -> glm::quat {
   return q;
 }
 
+constexpr auto get_first_texture_path(aiTextureType type, aiMaterial *material)
+    -> std::optional<std::filesystem::path> {
+  if (material == nullptr) {
+    return std::nullopt;
+  }
+  int const constexpr first_texture_index{0};
+  aiString aipathstring;
+  material->GetTexture(type, first_texture_index, &aipathstring);
+  std::string pathstring = aipathstring.C_Str();
+  if (pathstring == "") {
+    return std::nullopt;
+  }
+
+  if (pathstring.starts_with("*")) {
+    return std::nullopt;
+  }
+
+  return std::filesystem::path(pathstring);
+}
+
+constexpr auto get_first_diffuse_path =
+    std::bind_front(get_first_texture_path, aiTextureType_DIFFUSE);
+
+constexpr auto get_first_specular_path =
+    std::bind_front(get_first_texture_path, aiTextureType_SPECULAR);
+
+constexpr auto get_first_ambient_path =
+    std::bind_front(get_first_texture_path, aiTextureType_AMBIENT);
+
 } // namespace util
 
 constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
                              aiMaterial *material) -> material_t {
 
-  std::string const diffuse_name = material->GetName().C_Str();
-
+  std::filesystem::path const basedir = info.path.parent_path();
   material_t out;
+  out.name = material->GetName().C_Str();
+  std::println("Loading material: {}", out.name);
+
+  std::optional<std::filesystem::path> diffuse_path =
+      util::get_first_diffuse_path(material);
+
+  if (diffuse_path.has_value()) {
+    std::filesystem::path const path = basedir / diffuse_path.value();
+    std::println("loading diffuse bitmap from path {}", path.string());
+    auto diffuse_bitmap = bitmap_t::create(path, bitmap_format_t::rgba);
+
+    if (diffuse_bitmap.has_value()) {
+      std::println("Converting diffuse image to texture");
+//     out.diffuse.emplace(diffuse_bitmap->make_texture(
+//         info.core->physical_device(), info.core->device()));
+    }
+  } else {
+    std::println("could not get path to diffuse");
+  }
+
+  std::optional<std::filesystem::path> specular_path =
+      util::get_first_specular_path(material);
+
+  if (specular_path.has_value()) {
+    std::filesystem::path const path = basedir / specular_path.value();
+    std::println("Loading specular from path: {}", path.string());
+  }
+
+  std::optional<std::filesystem::path> ambient_path =
+      util::get_first_ambient_path(material);
+
+  if (ambient_path.has_value()) {
+    std::filesystem::path const path = basedir / ambient_path.value();
+    std::println("Loading ambient from path: {}", path.string());
+  }
+
   return out;
 }
 
@@ -125,6 +197,13 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
       vertex.color[0] = 1.0f;
       vertex.color[1] = 1.0f;
       vertex.color[2] = 1.0f;
+    }
+    if (mesh->mTextureCoords[0] != nullptr) {
+      vertex.texcoord[0] = mesh->mTextureCoords[0][i].x;
+      vertex.texcoord[1] = mesh->mTextureCoords[0][i].y;
+    } else {
+      vertex.texcoord[0] = 0.0f;
+      vertex.texcoord[1] = 0.0f;
     }
 
     vertices.push_back(vertex);
@@ -205,8 +284,10 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
   return result;
 }
 
-constexpr auto load_model(model_load_info_t &info, const aiScene *scene,
-                          aiNode *node) -> std::optional<model_t> {
+constexpr auto load_model(model_load_info_t &info,
+                          std::vector<material_t> &materials,
+                          const aiScene *scene, aiNode *node)
+    -> std::optional<model_t> {
 
   model_t model;
   model.transform = util::to_glm(node->mTransformation);
@@ -218,12 +299,13 @@ constexpr auto load_model(model_load_info_t &info, const aiScene *scene,
 
     aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
     if (material != nullptr) {
-      model.materials.emplace_back(load_material(info, scene, material));
+      materials.emplace_back(load_material(info, scene, material));
     }
   }
 
   for (unsigned int i = 0; i < node->mNumChildren; i++) {
-    std::optional<model_t> child = load_model(info, scene, node->mChildren[i]);
+    std::optional<model_t> child =
+        load_model(info, materials, scene, node->mChildren[i]);
     if (child.has_value())
       model.children.push_back(std::move(*child));
   }
@@ -231,8 +313,9 @@ constexpr auto load_model(model_load_info_t &info, const aiScene *scene,
   return model;
 }
 
-model_source_t::model_source_t(std::filesystem::path path, model_t root)
-    : _path{path}, _root{std::move(root)} {}
+model_source_t::model_source_t(std::filesystem::path path, model_t root,
+                               std::vector<material_t> materials)
+    : _path{path}, _root{std::move(root)}, _materials{std::move(materials)} {}
 
 auto model_source_t::create(model_load_info_t &info)
     -> std::expected<model_source_t, load_error_t> {
@@ -252,7 +335,7 @@ auto model_source_t::create(model_load_info_t &info)
   chrono_time_point_t start = chrono_clock_t::now();
 
   std::uint32_t const load_flags = std::invoke([&info]() {
-  #if 0
+#if 0
     std::uint32_t flags = aiProcess_GenNormals | aiProcess_Triangulate ;
 
     if (info.mesh_adapters.generate_smooth_normals) {
@@ -268,10 +351,9 @@ auto model_source_t::create(model_load_info_t &info)
       flags |= aiProcess_FlipUVs;
     }
 #endif
-
-  std::uint32_t constexpr flags =
-      aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs |
-      aiProcess_FixInfacingNormals | aiProcess_LimitBoneWeights;
+    std::uint32_t constexpr flags =
+        aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs |
+        aiProcess_FixInfacingNormals | aiProcess_LimitBoneWeights;
 
     return flags;
   });
@@ -291,9 +373,12 @@ auto model_source_t::create(model_load_info_t &info)
     return std::unexpected(load_error_missing_root(importer.GetErrorString()));
   }
 
-  std::optional<model_t> model = load_model(info, scene, scene->mRootNode);
+  std::vector<material_t> materials;
+  std::optional<model_t> model =
+      load_model(info, materials, scene, scene->mRootNode);
   if (model.has_value()) {
-    model_source_t model_source(info.path, std::move(*model));
+    model_source_t model_source(info.path, std::move(*model),
+                                std::move(materials));
     model_source.start = start;
     model_source.end = chrono_clock_t::now();
     return model_source;
@@ -309,5 +394,7 @@ auto model_source_t::loadtime_seconds() const -> double {
 }
 
 auto model_source_t::root() -> model_t & { return _root; }
+
+auto model_source_t::materials() -> std::span<material_t> { return _materials; }
 
 } // namespace game

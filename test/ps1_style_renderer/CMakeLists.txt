@@ -51,9 +51,14 @@ set(PROGRAM_SOURCES
   ../../alex/geometrypass_builder.cpp
   ../../alex/pipeline_builder.cpp
   ../../alex/uniform_descriptorsets.cpp
+  
+  # Project specific
+  thirdparty/stb_image.cpp
+  resource_loader.cpp
+  bitmap.cpp
 )
 
-add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp resource_loader.cpp)
+add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)
 
 target_include_directories(${PROJECT_NAME}
   PRIVATE 
