@@ -23,7 +23,5 @@ vec4 posterize(vec4 colour)
 
 void main() {
     vec3 diffuse = vec3(texture(diffuse, inTexcoord));
-	vec3 finalColor = posterize(diffuse * inColor);
-
-	outColor = texture(diffuse, inTexcoord);
+	outColor = posterize(vec4(diffuse * inColor, 1.0));
 }
