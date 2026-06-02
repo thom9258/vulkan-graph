@@ -9,7 +9,7 @@ layout(set = 1, binding = 0)
 uniform sampler2D diffuse;
 
 void main() {
-    vec3 diffuse = vec3(texture(diffuse, inTexcoord));
-	vec3 finalColor = diffuse * inColor;
-	outColor = vec4(finalColor, 1.0f);
+    //vec3 diffuse = vec3(texture(diffuse, inTexcoord));
+	//vec3 finalColor = diffuse * inColor;
+	outColor = texture(diffuse, inTexcoord);
 }

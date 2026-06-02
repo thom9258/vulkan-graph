@@ -53,8 +53,8 @@ int main() {
   window_info.name = "ps1_game";
   window_info.x = -1;
   window_info.y = -1;
-  window_info.width = 800;
-  window_info.height = 600;
+  window_info.width = 320 * 2;
+  window_info.height = 240 * 2;
 
   sdl::window_t window(window_info);
 
@@ -72,8 +72,8 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
-  vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 4),
-                             static_cast<std::int32_t>(window_info.height / 4),
+  vk::Extent3D render_extent(static_cast<std::int32_t>(window_info.width / 2),
+                             static_cast<std::int32_t>(window_info.height / 2),
                              1);
 
   alex::core_t core(core_info);
@@ -279,7 +279,7 @@ int main() {
   print_model_names(1, chest.value().root());
 
   auto chest_diffuse_bitmap = game::bitmap_t::create(
-      "/home/th/Assets/ChestWowStyle/diffuse.tga", game::bitmap_format_t::rgba);
+      "/home/th/Assets/ChestWowStyle/diffuse.tga", game::bitmap_format_t::rgb);
 
   if (!chest_diffuse_bitmap.has_value()) {
     std::println("Could not load chest diffuse bitmap");

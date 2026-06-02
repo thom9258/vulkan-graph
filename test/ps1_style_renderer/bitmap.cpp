@@ -2,6 +2,8 @@
 
 #include "thirdparty/stb_image.h"
 
+#include <print>
+#include <stdexcept>
 #include <utility>
 
 namespace game {
@@ -28,7 +30,7 @@ auto bitmap_t::create(std::filesystem::path path, bitmap_format_t format)
     return std::nullopt;
   }
 
-  stbi_set_flip_vertically_on_load(true);
+  stbi_set_flip_vertically_on_load(false);
 
   bitmap_t bitmap;
   bitmap._pixels = pixels_pointer_t(
@@ -64,10 +66,9 @@ auto bitmap_t::format() const -> bitmap_format_t {
     return bitmap_format_t::rgb;
   case 4:
     return bitmap_format_t::rgba;
-  default:
-    return bitmap_format_t::rgb;
   };
 
+  throw std::runtime_error("INVALID BITMAP FORMAT CHANNEL COUNT");
   std::unreachable();
 }
 

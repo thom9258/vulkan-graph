@@ -14,9 +14,10 @@ constexpr auto to_vk_format(bitmap_format_t fmt) -> vk::Format {
   switch (fmt) {
     using enum bitmap_format_t;
   case rgb:
-    return vk::Format::eR8G8B8Snorm;
+    return vk::Format::eR8G8B8Srgb;
+
   case rgba:
-    return vk::Format::eR8G8B8A8Snorm;
+    return vk::Format::eR8G8B8A8Srgb;
   };
 
   std::unreachable();
