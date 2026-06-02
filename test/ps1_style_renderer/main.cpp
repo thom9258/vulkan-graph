@@ -122,7 +122,7 @@ int main() {
   presenter_info.physical_device = core.physical_device();
   presenter_info.device = core.device();
   presenter_info.commandpool = core.commandpool();
-  presenter_info.enable_vsync = true;
+  presenter_info.enable_vsync = false;
   presenter_info.window_surface = window_surface.get();
   presenter_info.window_extent.width = window_extent.width;
   presenter_info.window_extent.height = window_extent.height;
