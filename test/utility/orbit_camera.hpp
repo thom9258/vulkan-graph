@@ -11,6 +11,7 @@
 
 class OrbitCamera {
 public:
+  OrbitCamera();
   OrbitCamera(const glm::vec3 center, const float radius);
 
   [[nodiscard]]
@@ -49,9 +50,11 @@ private:
   } m_phi_limits;
 };
 
+OrbitCamera::OrbitCamera() : OrbitCamera(glm::vec3(0.0f), 5.0f) {}
+
 OrbitCamera::OrbitCamera(const glm::vec3 center, const float radius)
-    : m_center(center), m_radius(radius), m_phi(std::numbers::pi_v<float> * 0.25f),
-      m_theta(0) {}
+    : m_center(center), m_radius(radius),
+      m_phi(std::numbers::pi_v<float> * 0.25f), m_theta(0) {}
 
 void OrbitCamera::phi_clamp() {
   m_phi = std::clamp(m_phi, m_phi_limits.min, m_phi_limits.max);

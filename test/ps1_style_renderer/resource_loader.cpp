@@ -136,7 +136,7 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
   std::filesystem::path const basedir = info.path.parent_path();
   material_t out;
   out.name = material->GetName().C_Str();
-  std::println("Loading material: {}", out.name);
+  //std::println("Loading material: {}", out.name);
 
   std::optional<std::filesystem::path> diffuse_path =
       util::get_first_diffuse_path(material);
@@ -147,20 +147,13 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
     auto diffuse_bitmap = bitmap_t::create(path, bitmap_format_t::rgba);
 
     if (diffuse_bitmap.has_value()) {
-      std::println("Converting diffuse image to texture");
-//     out.diffuse.emplace(diffuse_bitmap->make_texture(
-//         info.core->physical_device(), info.core->device()));
     }
-  } else {
-    std::println("could not get path to diffuse");
   }
-
   std::optional<std::filesystem::path> specular_path =
       util::get_first_specular_path(material);
 
   if (specular_path.has_value()) {
     std::filesystem::path const path = basedir / specular_path.value();
-    std::println("Loading specular from path: {}", path.string());
   }
 
   std::optional<std::filesystem::path> ambient_path =
@@ -168,7 +161,6 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
 
   if (ambient_path.has_value()) {
     std::filesystem::path const path = basedir / ambient_path.value();
-    std::println("Loading ambient from path: {}", path.string());
   }
 
   return out;

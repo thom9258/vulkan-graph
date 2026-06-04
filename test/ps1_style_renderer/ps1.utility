@@ -1,0 +1,43 @@
+#ifndef PS1_UTILITY
+#define PS1_UTILITY
+
+// position must be provided after MVP translation
+// clip range is specified as [-1 to 1]
+vec4 ps1_low_precision(vec4 position, vec2 resolution)
+{
+	vec3 perspective_divide = position.xyz / vec3(position.w);
+	vec2 screen_coords = (perspective_divide.xy 
+							+ vec2(1.0,1.0)) 
+							* vec2(resolution.x,resolution.y) 
+							* 0.5;
+
+	vec2 screen_coords_truncated = vec2(int(screen_coords.x),
+										int(screen_coords.y));
+	
+	vec2 reconverted_xy = ((screen_coords_truncated * vec2(2,2))
+							/ vec2(resolution.x,resolution.y)) 
+							- vec2(1,1);
+
+	vec4 ps1_pos = vec4(reconverted_xy.x,
+						reconverted_xy.y,
+						perspective_divide.z,
+						position.w);
+
+	ps1_pos.xyz = ps1_pos.xyz * vec3(position.w, position.w, position.w);
+	return ps1_pos;
+}
+
+vec4 ps1_posterize(vec4 colour)
+{
+	float gamma = 0.6f;
+	float num_colors = 32.0f;
+	vec3 colour_out = colour.rgb;
+	colour_out = pow(colour_out, vec3(gamma));
+	colour_out = colour_out * num_colors;
+	colour_out = floor(colour_out);
+	colour_out = colour_out / num_colors;
+	colour_out = pow(colour_out, vec3(1.0 / gamma));
+	return vec4(colour_out,1.0);
+}
+
+#endif // PS1_UTILITY

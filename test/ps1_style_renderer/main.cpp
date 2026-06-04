@@ -11,10 +11,14 @@
 
 #include "../utility/button.hpp"
 #include "../utility/sdl.hpp"
+#include "../utility/scenestack.hpp"
 
+#include "chest_scene.hpp"
 #include "bitmap.hpp"
-#include "ecs.hpp"
-#include "orbit_camera.hpp"
+#include "ecs/manager.hpp"
+#include "ecs/system_model.hpp"
+#include "ecs/system_orbit_camera.hpp"
+
 #include "resource_loader.hpp"
 
 #include <chrono>
@@ -79,9 +83,30 @@ int main() {
   alex::core_t core(core_info);
 
   /* ****************************************
-   * Create DescriptorSet Layout for geometry pipeline
+   * Setup presentation context
    */
   sdl::window_extent_t window_extent = window.window_extent();
+  alex::presenter_info_t presenter_info;
+  presenter_info.physical_device = core.physical_device();
+  presenter_info.device = core.device();
+  presenter_info.commandpool = core.commandpool();
+  presenter_info.enable_vsync = false;
+  presenter_info.window_surface = window_surface.get();
+  presenter_info.window_extent.width = window_extent.width;
+  presenter_info.window_extent.height = window_extent.height;
+  alex::presenter_t presenter(presenter_info);
+
+  /* ****************************************
+   * Create Scenes
+   */
+  scene::scenestack_t scenestack;
+  scenestack.put(std::make_unique<game::chest_scene>());
+
+  scenestack.try_pop();
+
+  /* ****************************************
+   * Create DescriptorSet Layout for geometry pipeline
+   */
 
   std::vector<vk::DescriptorSetLayoutBinding> frame_uniform_bindings({
       vk::DescriptorSetLayoutBinding{}
@@ -114,19 +139,6 @@ int main() {
 
   vk::UniqueDescriptorSetLayout geometry_pipeline_diffuse_setlayout =
       core.device().createDescriptorSetLayoutUnique(diffuse_setinfo, nullptr);
-
-  /* ****************************************
-   * Setup presentation context
-   */
-  alex::presenter_info_t presenter_info;
-  presenter_info.physical_device = core.physical_device();
-  presenter_info.device = core.device();
-  presenter_info.commandpool = core.commandpool();
-  presenter_info.enable_vsync = false;
-  presenter_info.window_surface = window_surface.get();
-  presenter_info.window_extent.width = window_extent.width;
-  presenter_info.window_extent.height = window_extent.height;
-  alex::presenter_t presenter(presenter_info);
 
   /* ****************************************
    * Setup rendering
@@ -253,9 +265,13 @@ int main() {
    * Setup ecs
    */
   std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
-  std::array<component_mesh_t, max_entities> mesh_components;
+  std::array<component_drawable_t, max_entities> mesh_components;
   std::array<component_transform_t, max_entities> transform_components;
-  ecs::manager_t manager(entity_memory, mesh_components, transform_components);
+  std::array<component_orbit_camera_t, orbit_camera_components_max>
+      orbit_camera_components;
+
+  ecs::manager_t manager(entity_memory, mesh_components, transform_components,
+                         orbit_camera_components);
 
   /* ****************************************
    * Load resources
@@ -428,7 +444,7 @@ int main() {
         manager.add_component<component_transform_t>(chest_entity);
     transform->mat = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
 
-    auto *mesh = manager.add_component<component_mesh_t>(chest_entity);
+    auto *mesh = manager.add_component<component_drawable_t>(chest_entity);
     mesh->vertices =
         &(chest.value().root().children.at(0).meshes.at(0).vertices.value());
     mesh->vertices_length =
@@ -532,18 +548,24 @@ int main() {
     });
   }
 
-  float const camera_radius = 4.0f;
-  glm::vec3 const target(0.0f, 0.5f, 0.0f);
-  OrbitCamera camera(target, camera_radius);
+  ecs::entity_id_t orbit_camera_entity = manager.new_entity();
+  {
+    auto *orbit_camera =
+        manager.add_component<component_orbit_camera_t>(orbit_camera_entity);
 
-  const float aspect = window_extent.aspect();
-  const float near_plane = 0.1f, far_plane = 200.0f;
-  glm::mat4 const projection = std::invoke([&]() {
-    glm::mat4 p =
-        glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
-    p[1][1] *= -1.0f;
-    return p;
-  });
+    float const camera_radius = 4.0f;
+    glm::vec3 const target(0.0f, 0.5f, 0.0f);
+    orbit_camera->camera = OrbitCamera(target, camera_radius);
+
+    const float aspect = window_extent.aspect();
+    const float near_plane = 0.1f, far_plane = 200.0f;
+    orbit_camera->projection = std::invoke([&]() {
+      glm::mat4 p =
+          glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
+      p[1][1] *= -1.0f;
+      return p;
+    });
+  }
 
   {
     auto now = std::chrono::high_resolution_clock::now();
@@ -553,23 +575,11 @@ int main() {
     std::println("Initialization time: {}", initialization_time);
   }
 
-  struct buttons_t {
-    button_t w;
-    button_t a;
-    button_t s;
-    button_t d;
-    button_t e;
-    button_t q;
-    button_t forward;
-    button_t backward;
-  } buttons;
-
   bool running = true;
   while (running) {
     window.mark_next_frame();
     std::span<SDL_Event> events = window.get_events();
     double const deltatime = window.deltatime_seconds();
-    double const movespeed = 5.0f * deltatime;
 
     for (SDL_Event event : events) {
       switch (event.type) {
@@ -577,101 +587,22 @@ int main() {
         running = false;
         break;
 
-      case SDL_KEYUP:
-        switch (event.key.keysym.sym) {
-        case SDLK_ESCAPE:
-          running = false;
-          break;
-        case SDLK_w:
-          buttons.w.release();
-          break;
-        case SDLK_s:
-          buttons.s.release();
-          break;
-        case SDLK_a:
-          buttons.a.release();
-          break;
-        case SDLK_d:
-          buttons.d.release();
-          break;
-        case SDLK_e:
-          buttons.e.release();
-          break;
-        case SDLK_q:
-          buttons.q.release();
-          break;
-        case SDLK_UP:
-          buttons.forward.release();
-          break;
-        case SDLK_DOWN:
-          buttons.backward.release();
-          break;
-        }
-        break;
-
       case SDL_KEYDOWN:
         switch (event.key.keysym.sym) {
         case SDLK_ESCAPE:
           running = false;
-          break;
-        case SDLK_w:
-          buttons.w.press();
-          break;
-        case SDLK_s:
-          buttons.s.press();
-          break;
-        case SDLK_a:
-          buttons.a.press();
-          break;
-        case SDLK_d:
-          buttons.d.press();
-          break;
-        case SDLK_e:
-          buttons.e.press();
-          break;
-        case SDLK_q:
-          buttons.q.press();
-          break;
-        case SDLK_UP:
-          buttons.forward.press();
-          break;
-        case SDLK_DOWN:
-          buttons.backward.press();
           break;
         }
         break;
       }
     }
 
-    static glm::mat4 chest_transform(
-        glm::scale(glm::mat4(1.0f), glm::vec3(0.05f)));
+    ecs::system::orbit_camera_update_info_t orbit_camera_update_info;
+    orbit_camera_update_info.manager = &manager;
+    orbit_camera_update_info.sdl_events = events;
+    orbit_camera_update_info.deltatime = deltatime;
 
-    if (buttons.w.is_pressed()) {
-      camera.add_rotation(movespeed, 0.0f);
-    }
-    if (buttons.a.is_pressed()) {
-      camera.add_rotation(0.0f, movespeed);
-    }
-    if (buttons.s.is_pressed()) {
-      camera.add_rotation(-movespeed, 0.0f);
-    }
-    if (buttons.d.is_pressed()) {
-      camera.add_rotation(0.0f, -movespeed);
-    }
-    if (buttons.e.is_pressed()) {
-      camera.set_radius(camera.radius() + movespeed);
-    }
-    if (buttons.q.is_pressed()) {
-      camera.set_radius(camera.radius() - movespeed);
-    }
-    if (buttons.forward.is_pressed()) {
-      chest_transform =
-          glm::translate(chest_transform, glm::vec3(movespeed, 0.0f, 0.0f));
-    }
-    if (buttons.backward.is_pressed()) {
-      chest_transform =
-          glm::translate(chest_transform, glm::vec3(-movespeed, 0.0f, 0.0f));
-    }
+    ecs::system::orbit_camera_update(orbit_camera_update_info);
 
     alex::next_frame_info_t next_frame_info =
         presenter.wait_for_next_frame(core.device());
@@ -682,44 +613,20 @@ int main() {
     taskgraphs[next_frame_info.flightframe] = alex::graph_t();
     alex::graph_t &graph = taskgraphs[next_frame_info.flightframe];
 
-    graph.add_task(
-        upload_task_id,
-        std::make_unique<alex::simple_task_t>(
-            "upload", [&](vk::CommandBuffer commandbuffer) {
-              std::array<ecs::entity_id_t, max_entities> entities;
-              std::size_t entity_count = manager.get_entities(entities);
-              entity_count = manager.filter_inplace<component_mesh_t>(
-                  std::span(entities).subspan(0, entity_count));
-              entity_count = manager.filter_inplace<component_transform_t>(
-                  std::span(entities).subspan(0, entity_count));
+    graph.add_task(upload_task_id,
+                   std::make_unique<alex::simple_task_t>(
+                       "upload", [&](vk::CommandBuffer commandbuffer) {
+                         ecs::system::models_upload_info_t system_upload_info;
+                         system_upload_info.manager = &manager;
+                         system_upload_info.physical_device =
+                             core.physical_device();
+                         system_upload_info.device = core.device();
+                         system_upload_info.commandbuffer = commandbuffer;
+                         system_upload_info.flightframe =
+                             next_frame_info.flightframe;
 
-              for (ecs::entity_id_t entity :
-                   entities | std::views::take(entity_count)) {
-                auto *mesh = manager.get_component<component_mesh_t>(entity);
-                auto *transform =
-                    manager.get_component<component_transform_t>(entity);
-
-                draw_info_t draw_info;
-                draw_info.view = camera.view();
-                draw_info.projection = projection;
-                //  draw_info.model = transform->mat;
-                draw_info.model = chest_transform;
-                std::memcpy(mesh->direct_uniforms[next_frame_info.flightframe]
-                                ->memory_ptr(),
-                            &draw_info, sizeof(draw_info));
-
-                alex::memory_buffer_write_info_t write_info;
-                write_info.physical_device = core.physical_device();
-                write_info.device = core.device();
-                write_info.direct =
-                    &mesh->direct_uniforms[next_frame_info.flightframe].value();
-                write_info.write_size =
-                    mesh->uniforms[next_frame_info.flightframe]->memory_size();
-                write_info.commandbuffer = commandbuffer;
-                mesh->uniforms[next_frame_info.flightframe]->record_write(
-                    write_info);
-              }
-            }));
+                         ecs::system::models_upload(system_upload_info);
+                       }));
 
     graph.add_task(
         geometry_task_id,
@@ -761,52 +668,13 @@ int main() {
               commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                          geometry_pipeline.pipeline());
 
-              std::array<ecs::entity_id_t, max_entities> entities;
-              std::size_t entity_count = manager.get_entities(entities);
-              entity_count = manager.filter_inplace<component_mesh_t>(
-                  std::span(entities).subspan(0, entity_count));
-              entity_count = manager.filter_inplace<component_transform_t>(
-                  std::span(entities).subspan(0, entity_count));
-
-              for (ecs::entity_id_t entity :
-                   entities | std::views::take(entity_count)) {
-                auto *mesh = manager.get_component<component_mesh_t>(entity);
-
-                {
-                  vk::DescriptorSet uniform =
-                      mesh->uniform_descriptorsets[next_frame_info.flightframe]
-                          .get();
-
-                  commandbuffer.bindDescriptorSets(
-                      vk::PipelineBindPoint::eGraphics,
-                      geometry_pipeline.layout(), 0, 1, &uniform, 0, nullptr);
-                }
-                {
-                  vk::DescriptorSet diffuse =
-                      mesh->diffuse_descriptorsets[next_frame_info.flightframe]
-                          .get();
-
-                  commandbuffer.bindDescriptorSets(
-                      vk::PipelineBindPoint::eGraphics,
-                      geometry_pipeline.layout(), 1, 1, &diffuse, 0, nullptr);
-                }
-
-                {
-                  std::vector<vk::DeviceSize> offsets = {0};
-                  std::vector<vk::Buffer> buffers = {mesh->vertices->buffer()};
-                  commandbuffer.bindVertexBuffers(0, 1, buffers.data(),
-                                                  offsets.data());
-                }
-
-                {
-                  vk::DeviceSize offset = 0;
-                  vk::Buffer buffer = mesh->indices->buffer();
-                  commandbuffer.bindIndexBuffer(buffer, offset,
-                                                vk::IndexType::eUint32);
-                }
-
-                commandbuffer.drawIndexed(mesh->indices_length, 1, 0, 0, 0);
-              }
+              ecs::system::models_draw_info_t system_draw_info;
+              system_draw_info.manager = &manager;
+              system_draw_info.commandbuffer = commandbuffer;
+              system_draw_info.flightframe = next_frame_info.flightframe;
+              system_draw_info.geometry_pipeline_layout =
+                  geometry_pipeline.layout();
+              ecs::system::models_draw(system_draw_info);
 
               commandbuffer.endRenderPass();
             }));
