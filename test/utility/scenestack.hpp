@@ -5,28 +5,25 @@
 
 namespace scene {
 
+enum class status_t { ok, shutdown, no_scene };
+
 class scene_t {
 public:
   constexpr virtual ~scene_t() = default;
 
   constexpr virtual auto load() -> void {};
-  constexpr virtual auto input() -> void {};
-  constexpr virtual auto update(double deltatime) -> void {};
-  constexpr virtual auto draw() -> void {};
+  constexpr virtual auto tick() -> status_t { return status_t::ok; };
   constexpr virtual auto unload() -> void {};
 };
 
 class scenestack_t {
 public:
-  constexpr auto tick(double deltatime) -> void {
+  constexpr auto tick() -> status_t {
     if (_scenes.empty()) {
-      return;
+      return status_t::no_scene;
     }
 
-    auto &top = _scenes.back();
-    top->input();
-    top->update(deltatime);
-    top->draw();
+    return _scenes.back()->tick();
   }
 
   constexpr auto top() -> scene_t * {
@@ -40,7 +37,7 @@ public:
   constexpr auto put(std::unique_ptr<scene_t> scene) -> scene_t * {
     unload_top_if_it_exists();
     _scenes.push_back(std::move(scene));
-	_scenes.back()->load();
+    _scenes.back()->load();
     return _scenes.back().get();
   }
 
