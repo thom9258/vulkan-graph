@@ -54,6 +54,8 @@ template <class t_location,
 class transform_hierarchy_t {
 public:
   using location_t = std::remove_cvref_t<t_location>;
+  using index_t = transform_id_t::index_t;
+
   struct transform_t {
     using generation_t = transform_id_t::generation_t;
 
@@ -231,8 +233,8 @@ public:
 
 private:
   constexpr auto recalculate_parent_location_chain(transform_t &transform,
-                                                   std::size_t index) -> void {
-    std::vector<std::size_t> parent_indices;
+                                                   index_t index) -> void {
+    std::vector<index_t> parent_indices;
     parent_indices.push_back(index);
 
     transform_id_t parent = transform.parent;
@@ -247,7 +249,7 @@ private:
     //       find the first dirty one, then proceed with updating from there.
 
     {
-      std::size_t parent_index = parent_indices.back();
+      index_t parent_index = parent_indices.back();
       if (_transforms[parent_index].dirty) {
         transform_t &parent = _transforms[parent_index];
         parent.global_location = parent.local_location;
