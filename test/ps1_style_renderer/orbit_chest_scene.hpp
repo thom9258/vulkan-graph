@@ -124,7 +124,7 @@ constexpr auto player_t::update(player_update_info_t &info) -> void {
   }
 }
 
-struct ecs_chest_scene_info_t {
+struct orbit_chest_scene_info_t {
   std::string name{""};
   alex::core_t *core{nullptr};
   alex::presenter_t *presenter{nullptr};
@@ -132,13 +132,13 @@ struct ecs_chest_scene_info_t {
   sdl::window_t *window{nullptr};
 };
 
-class ecs_chest_scene : public scene::scene_t {
+class orbit_chest_scene : public scene::scene_t {
 public:
-  constexpr ecs_chest_scene(ecs_chest_scene_info_t &info)
+  constexpr orbit_chest_scene(orbit_chest_scene_info_t &info)
       : _name{info.name}, _core{info.core}, _rendering{info.rendering},
         _presenter{info.presenter}, _window{info.window} {};
 
-  constexpr ~ecs_chest_scene() override {}
+  constexpr ~orbit_chest_scene() override {}
 
   constexpr auto load() -> void override {
     std::println("{} Loaded", _name);

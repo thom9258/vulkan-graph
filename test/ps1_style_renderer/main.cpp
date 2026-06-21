@@ -14,7 +14,7 @@
 #include "../utility/sdl.hpp"
 
 #include "bitmap.hpp"
-#include "ecs_chest_scene.hpp"
+#include "orbit_chest_scene.hpp"
 #include <chrono>
 #include <iostream>
 #include <ranges>
@@ -86,13 +86,13 @@ int main() {
    */
   scene::scenestack_t scenestack;
 
-  game::ecs_chest_scene_info_t chest_scene_info;
+  game::orbit_chest_scene_info_t chest_scene_info;
   chest_scene_info.name = "Chest scene 1";
   chest_scene_info.core = &core;
   chest_scene_info.rendering = &rendering;
   chest_scene_info.presenter = &presenter;
   chest_scene_info.window = &window;
-  scenestack.put(std::make_unique<game::ecs_chest_scene>(chest_scene_info));
+  scenestack.put(std::make_unique<game::orbit_chest_scene>(chest_scene_info));
 
   {
     auto now = std::chrono::high_resolution_clock::now();
