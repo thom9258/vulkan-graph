@@ -1,8 +1,8 @@
 #pragma once
 
 #include <alex/core.hpp>
-#include <alex/task_graph.hpp>
 #include <alex/flightframe_array.hpp>
+#include <alex/task_graph.hpp>
 
 #include "../utility/scenestack.hpp"
 #include "../utility/button.hpp"
@@ -10,9 +10,9 @@
 #include "../utility/sdl.hpp"
 
 #include "glm_transform_hierarchy.hpp"
-#include "static_object.hpp"
 #include "rendering.hpp"
 #include "resource_loader.hpp"
+#include "static_object.hpp"
 
 #include <functional>
 #include <print>

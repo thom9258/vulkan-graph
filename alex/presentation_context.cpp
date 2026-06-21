@@ -24,6 +24,10 @@ static constexpr auto get_best_swapchain_surface_format(
   return availables.front();
 }
 
+auto presenter_t::swapchain_image_count() -> std::size_t {
+  return _imageviews.size();
+}
+
 presenter_t::presenter_t(presenter_info_t &info) {
   window_extent = info.window_extent;
 
@@ -50,7 +54,8 @@ presenter_t::presenter_t(presenter_info_t &info) {
   result = info.physical_device.getSurfaceFormatsKHR(
       info.window_surface, &surface_format_count,
       available_surface_formats.data());
-  ALEX_ERROR_IF(result != vk::Result::eSuccess, "could not get surface formats!")
+  ALEX_ERROR_IF(result != vk::Result::eSuccess,
+                "could not get surface formats!")
 
   format = get_best_swapchain_surface_format(available_surface_formats);
 

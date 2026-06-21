@@ -15,6 +15,7 @@
 
 #include "bitmap.hpp"
 #include "orbit_chest_scene.hpp"
+#include "imgui_scene.hpp"
 #include <chrono>
 #include <iostream>
 #include <ranges>
@@ -40,8 +41,8 @@ int main() {
   window_info.name = "ps1_game";
   window_info.x = -1;
   window_info.y = -1;
-  window_info.width = 320 * 2;
-  window_info.height = 240 * 2;
+  window_info.width = 320 * 4;
+  window_info.height = 240 * 4;
 
   sdl::window_t window(window_info);
   sdl::window_extent_t window_extent = window.window_extent();
@@ -92,7 +93,16 @@ int main() {
   chest_scene_info.rendering = &rendering;
   chest_scene_info.presenter = &presenter;
   chest_scene_info.window = &window;
-  scenestack.put(std::make_unique<game::orbit_chest_scene>(chest_scene_info));
+  //scenestack.put(std::make_unique<game::orbit_chest_scene>(chest_scene_info));
+
+  game::imgui_scene_info_t imgui_scene_info;
+  imgui_scene_info.context = &context;
+  imgui_scene_info.core = &core;
+  imgui_scene_info.rendering = &rendering;
+  imgui_scene_info.presenter = &presenter;
+  imgui_scene_info.window = &window;
+  scenestack.put(std::make_unique<game::imgui_scene>(imgui_scene_info));
+
 
   {
     auto now = std::chrono::high_resolution_clock::now();

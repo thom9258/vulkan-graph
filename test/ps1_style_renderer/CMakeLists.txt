@@ -23,9 +23,12 @@ FetchContent_Declare(SimpleGeometry
 )
 FetchContent_MakeAvailable(SimpleGeometry)
 
+include(FetchContent)
 FetchContent_Declare(imgui_external
-	URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.7.tar.gz
-	EXCLUDE_FROM_ALL
+  GIT_REPOSITORY https://github.com/ocornut/imgui.git
+  GIT_TAG v1.92.8-docking
+  GIT_SHALLOW TRUE
+  GIT_PROGRESS TRUE
 )
 FetchContent_MakeAvailable(imgui_external)
 

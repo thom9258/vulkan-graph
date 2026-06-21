@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <format>
+#include <algorithm>
 
 #include "../utility/transform_hierarchy.hpp"
 
@@ -300,6 +301,37 @@ TEST(transform_id, nested_hierarchy_translations) {
   EXPECT_EQ(hierarchy.local_location(*t5), p5);
   EXPECT_EQ(hierarchy.global_location(*t5),
             p1 + p3 + p4 + p5 + offset1 + offset2);
+}
+
+TEST(transform_id, roots) {
+  /*
+   * p1
+   * |__p2
+   * |__p3
+   *
+   * p4
+   * |__p5
+   *
+   * p6
+   */
+  transform_hierarchy_pos2d_t hierarchy(32);
+
+  auto t1 = hierarchy.add(pos2d{1, 2});
+  auto t2 = hierarchy.add_child_local_location(pos2d{4, 4}, *t1);
+  auto t3 = hierarchy.add_child_local_location(pos2d{-4, 0}, *t1);
+
+  auto t4 = hierarchy.add(pos2d{2, 2});
+
+  auto t5 = hierarchy.add_child_local_location(pos2d{-3, -2}, *t4);
+
+  auto t6 = hierarchy.add(pos2d{0, 0});
+
+  std::vector<transform_hierarchy::transform_id_t> roots = hierarchy.roots();
+
+  ASSERT_FALSE(roots.empty());
+  EXPECT_TRUE(std::ranges::contains(roots, *t1));
+  EXPECT_TRUE(std::ranges::contains(roots, *t4));
+  EXPECT_TRUE(std::ranges::contains(roots, *t6));
 }
 
 int main(int argc, char **argv) {

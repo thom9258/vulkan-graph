@@ -43,6 +43,8 @@ struct presenter_t {
   next_frame_info_t wait_for_next_frame(vk::Device device);
   void present(presentation_info_t &info);
 
+  auto swapchain_image_count() -> std::size_t;
+
   vk::Extent2D window_extent;
   vk::SurfaceFormatKHR format;
   vk::UniqueSwapchainKHR _swapchain;

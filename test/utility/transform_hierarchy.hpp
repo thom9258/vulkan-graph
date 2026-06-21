@@ -129,6 +129,17 @@ public:
     return children;
   }
 
+  [[nodiscard]] constexpr auto roots() -> std::vector<transform_id_t> {
+    std::vector<transform_id_t> roots;
+    for (auto [index, child] : _transforms | std::views::enumerate) {
+      if (child.active && child.parent == invalid_transform_id) {
+        roots.emplace_back(index, child.generation);
+      }
+    }
+
+    return roots;
+  }
+
   constexpr auto remove_and_preserve_children(transform_id_t &id) -> void {
     transform_t *transform = find(id);
     if (transform == nullptr) {
