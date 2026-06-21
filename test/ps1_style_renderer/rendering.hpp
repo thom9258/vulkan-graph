@@ -12,6 +12,12 @@
 #include <ranges>
 
 namespace game {
+	
+struct draw_info_t {
+  glm::mat4 view;
+  glm::mat4 projection;
+  glm::mat4 model;
+};
 
 struct rendering_t {
   vk::Extent3D _render_extent;

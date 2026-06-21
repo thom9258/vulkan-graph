@@ -1,14 +1,16 @@
 #pragma once
 
-#include "../utility/scenestack.hpp"
-
-#include "alex/core.hpp"
+#include <alex/core.hpp>
 #include <alex/task_graph.hpp>
+#include <alex/flightframe_array.hpp>
 
-#include "ecs/manager.hpp"
-#include "ecs/system_model.hpp"
-#include "ecs/system_orbit_camera.hpp"
+#include "../utility/scenestack.hpp"
+#include "../utility/button.hpp"
+#include "../utility/orbit_camera.hpp"
+#include "../utility/sdl.hpp"
 
+#include "glm_transform_hierarchy.hpp"
+#include "static_object.hpp"
 #include "rendering.hpp"
 #include "resource_loader.hpp"
 
@@ -17,14 +19,108 @@
 
 namespace game {
 
-auto constexpr print_model_names(int indent, game::model_t &model) -> void {
+auto constexpr print_model_names(int indent, model_t &model) -> void {
   for (int i = 0; i < indent; i++) {
     std::print(" ");
   }
 
   std::println("{}", model.name);
-  for (game::model_t &child : model.children) {
+  for (model_t &child : model.children) {
     print_model_names(indent++, child);
+  }
+}
+
+struct player_update_info_t {
+  std::span<SDL_Event> sdl_events;
+  double deltatime;
+};
+
+struct player_t {
+  button_t _w;
+  button_t _a;
+  button_t _s;
+  button_t _d;
+  button_t _e;
+  button_t _q;
+
+  OrbitCamera _camera;
+  glm::mat4 _projection;
+  double _rotatespeed = 5.0f;
+  double _zoomspeed = 8.0f;
+
+  constexpr auto update(player_update_info_t &info) -> void;
+};
+
+constexpr auto player_t::update(player_update_info_t &info) -> void {
+  for (SDL_Event event : info.sdl_events) {
+    switch (event.type) {
+    case SDL_KEYUP:
+      switch (event.key.keysym.sym) {
+      case SDLK_w:
+        _w.release();
+        break;
+      case SDLK_s:
+        _s.release();
+        break;
+      case SDLK_a:
+        _a.release();
+        break;
+      case SDLK_d:
+        _d.release();
+        break;
+      case SDLK_e:
+        _e.release();
+        break;
+      case SDLK_q:
+        _q.release();
+        break;
+      }
+      break;
+
+    case SDL_KEYDOWN:
+      switch (event.key.keysym.sym) {
+      case SDLK_w:
+        _w.press();
+        break;
+      case SDLK_s:
+        _s.press();
+        break;
+      case SDLK_a:
+        _a.press();
+        break;
+      case SDLK_d:
+        _d.press();
+        break;
+      case SDLK_e:
+        _e.press();
+        break;
+      case SDLK_q:
+        _q.press();
+        break;
+      }
+    }
+  }
+
+  const auto rotatespeed = _rotatespeed * info.deltatime;
+  const auto zoomspeed = _zoomspeed * info.deltatime;
+
+  if (_w.is_pressed()) {
+    _camera.add_rotation(rotatespeed, 0.0f);
+  }
+  if (_a.is_pressed()) {
+    _camera.add_rotation(0.0f, rotatespeed);
+  }
+  if (_s.is_pressed()) {
+    _camera.add_rotation(-rotatespeed, 0.0f);
+  }
+  if (_d.is_pressed()) {
+    _camera.add_rotation(0.0f, -rotatespeed);
+  }
+  if (_e.is_pressed()) {
+    _camera.set_radius(_camera.radius() + zoomspeed);
+  }
+  if (_q.is_pressed()) {
+    _camera.set_radius(_camera.radius() - zoomspeed);
   }
 }
 
@@ -52,12 +148,11 @@ public:
      */
     // TODO: we must add the ability to provide a staging scratch buffer
     //       for optimal memory usage
-    game::model_load_info_t chest_load_info;
+    model_load_info_t chest_load_info;
     chest_load_info.core = _core;
     chest_load_info.path = "/home/th/Assets/ChestWowStyle/Chest.obj";
-    // chest_load_info.path = "/home/th/Assets/Fox/glTF/Fox.gltf";
     {
-      auto chest = game::model_source_t::create(chest_load_info);
+      auto chest = model_source_t::create(chest_load_info);
       if (!chest.has_value()) {
         std::println("resource load error: [code: {}] {}",
                      game::to_string(chest.error().code()),
@@ -218,30 +313,24 @@ public:
             vk::DescriptorType::eCombinedImageSampler, 2);
 
     /* ****************************************
-     * Setup ecs
+     * Setup Static Object
      */
 
-    _manager = ecs::manager_t(entity_memory, mesh_components,
-                              transform_components, orbit_camera_components);
+    _transform_hierarchy = glm_transform_hierarchy(256);
 
-    /* ****************************************
-     * Setup entities
-     */
-    ecs::entity_id_t chest_entity = _manager->new_entity();
     {
-      auto *transform =
-          _manager->add_component<component_transform_t>(chest_entity);
-      transform->mat = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
+      static_object_t chest;
+      glm::mat4 model_matrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
+      chest.transform_id = _transform_hierarchy->add(model_matrix).value();
 
-      auto *mesh = _manager->add_component<component_drawable_t>(chest_entity);
-      mesh->vertices =
+      chest.vertices =
           &(_chest.value().root().children.at(0).meshes.at(0).vertices.value());
-      mesh->vertices_length =
+      chest.vertices_length =
           _chest.value().root().children.at(0).meshes.at(0).vertices_length;
 
-      mesh->indices =
+      chest.indices =
           &(_chest.value().root().children.at(0).meshes.at(0).indices.value());
-      mesh->indices_length =
+      chest.indices_length =
           _chest.value().root().children.at(0).meshes.at(0).indices_length;
 
       _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
@@ -253,26 +342,27 @@ public:
         direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
         direct_uniform_info.memory_size = sizeof(draw_info);
 
-        for (auto &uniform : mesh->direct_uniforms) {
-          uniform = alex::direct_memory_buffer_t(direct_uniform_info);
-          std::memcpy(uniform->memory_ptr(), &draw_info, sizeof(draw_info));
-        };
+        for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
+          chest.direct_uniforms.emplace_back(direct_uniform_info);
+          std::memcpy(chest.direct_uniforms.back().memory_ptr(), &draw_info,
+                      sizeof(draw_info));
+        }
 
-        for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+        for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
           alex::memory_buffer_info_t uniform_info;
           uniform_info.physical_device = _core->physical_device();
           uniform_info.device = _core->device();
           uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
           uniform_info.memory_size = direct_uniform_info.memory_size;
-          uniform = alex::memory_buffer_t(uniform_info);
+          chest.uniforms.emplace_back(uniform_info);
 
           alex::memory_buffer_write_info_t write_info;
           write_info.physical_device = _core->physical_device();
           write_info.device = _core->device();
-          write_info.direct = &mesh->direct_uniforms[i].value();
-          write_info.write_size = uniform->memory_size();
+          write_info.direct = &chest.direct_uniforms[i];
+          write_info.write_size = chest.uniforms.back().memory_size();
           write_info.commandbuffer = commandbuffer;
-          uniform->record_write(write_info);
+          chest.uniforms.back().record_write(write_info);
         }
 
         auto allocated_frame_uniform_descriptorsets =
@@ -280,22 +370,22 @@ public:
                 _rendering->_geometry.setlayout.frame_uniform.get(),
                 vk::DescriptorType::eUniformBuffer, 2);
 
-        mesh->uniform_descriptor_pool =
+        chest.uniform_descriptor_pool =
             std::move(allocated_frame_uniform_descriptorsets.pool);
-        mesh->uniform_descriptorsets =
+        chest.uniform_descriptorsets =
             std::move(allocated_frame_uniform_descriptorsets.sets);
 
-        for (auto [i, uniform] : mesh->uniforms | std::views::enumerate) {
+        for (auto [i, uniform] : chest.uniforms | std::views::enumerate) {
           const auto buffer_info = vk::DescriptorBufferInfo{}
-                                       .setBuffer(uniform->buffer())
+                                       .setBuffer(uniform.buffer())
                                        .setOffset(0)
-                                       .setRange(uniform->memory_size());
+                                       .setRange(uniform.memory_size());
 
           const std::array<vk::WriteDescriptorSet, 1> writes{
               vk::WriteDescriptorSet{}
                   .setDstBinding(0)
                   .setDstArrayElement(0)
-                  .setDstSet(mesh->uniform_descriptorsets[i].get())
+                  .setDstSet(chest.uniform_descriptorsets[i].get())
                   .setDescriptorCount(1)
                   .setDescriptorType(vk::DescriptorType::eUniformBuffer)
                   .setBufferInfo(buffer_info)};
@@ -309,13 +399,13 @@ public:
                 _rendering->_geometry.setlayout.diffuse.get(),
                 vk::DescriptorType::eCombinedImageSampler, 2);
 
-        mesh->diffuse_descriptor_pool =
+        chest.diffuse_descriptor_pool =
             std::move(allocated_diffuse_descriptorsets.pool);
-        mesh->diffuse_descriptorsets =
+        chest.diffuse_descriptorsets =
             std::move(allocated_diffuse_descriptorsets.sets);
 
         for (vk::UniqueDescriptorSet &diffuse_set :
-             mesh->diffuse_descriptorsets) {
+             chest.diffuse_descriptorsets) {
           const auto image_info =
               vk::DescriptorImageInfo{}
                   .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
@@ -335,26 +425,22 @@ public:
                                                nullptr);
         }
       });
+
+      _static_objects.push_back(std::move(chest));
     }
 
-    ecs::entity_id_t orbit_camera_entity = _manager->new_entity();
-    {
-      auto *orbit_camera = _manager->add_component<component_orbit_camera_t>(
-          orbit_camera_entity);
+    float const camera_radius = 4.0f;
+    glm::vec3 const target(0.0f, 0.5f, 0.0f);
+    _player._camera = OrbitCamera(target, camera_radius);
 
-      float const camera_radius = 4.0f;
-      glm::vec3 const target(0.0f, 0.5f, 0.0f);
-      orbit_camera->camera = OrbitCamera(target, camera_radius);
-
-      const float aspect = _window->window_extent().aspect();
-      const float near_plane = 0.1f, far_plane = 200.0f;
-      orbit_camera->projection = std::invoke([&]() {
-        glm::mat4 p =
-            glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
-        p[1][1] *= -1.0f;
-        return p;
-      });
-    }
+    const float aspect = _window->window_extent().aspect();
+    const float near_plane = 0.1f, far_plane = 200.0f;
+    _player._projection = std::invoke([&]() {
+      glm::mat4 p =
+          glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
+      p[1][1] *= -1.0f;
+      return p;
+    });
 
     for (vk::UniqueSemaphore &semaphore : _rendergraph_semaphores) {
       semaphore = _core->create_semaphore();
@@ -365,12 +451,11 @@ public:
     _window->mark_next_frame();
     std::span<SDL_Event> events = _window->get_events();
     double const deltatime = _window->deltatime_seconds();
-    ecs::system::orbit_camera_update_info_t orbit_camera_update_info;
-    orbit_camera_update_info.manager = &_manager.value();
-    orbit_camera_update_info.sdl_events = events;
-    orbit_camera_update_info.deltatime = deltatime;
 
-    ecs::system::orbit_camera_update(orbit_camera_update_info);
+    player_update_info_t player_update_info;
+    player_update_info.sdl_events = events;
+    player_update_info.deltatime = deltatime;
+    _player.update(player_update_info);
 
     for (SDL_Event event : events) {
       switch (event.type) {
@@ -395,20 +480,22 @@ public:
     _rendergraphs[next_frame_info.flightframe] = alex::graph_t();
     alex::graph_t &graph = _rendergraphs[next_frame_info.flightframe];
 
-    graph.add_task(upload_task_id,
-                   std::make_unique<alex::simple_task_t>(
-                       "upload", [&](vk::CommandBuffer commandbuffer) {
-                         ecs::system::models_upload_info_t system_upload_info;
-                         system_upload_info.manager = &_manager.value();
-                         system_upload_info.physical_device =
-                             _core->physical_device();
-                         system_upload_info.device = _core->device();
-                         system_upload_info.commandbuffer = commandbuffer;
-                         system_upload_info.flightframe =
-                             next_frame_info.flightframe;
-
-                         ecs::system::models_upload(system_upload_info);
-                       }));
+    graph.add_task(
+        upload_task_id,
+        std::make_unique<alex::simple_task_t>(
+            "upload", [&](vk::CommandBuffer commandbuffer) {
+              for (static_object_t &model : _static_objects) {
+                static_object_update_info_t update_info;
+                update_info.physical_device = _core->physical_device();
+                update_info.device = _core->device();
+                update_info.commandbuffer = commandbuffer;
+                update_info.flightframe = next_frame_info.flightframe;
+                update_info.transform_hierarchy = &_transform_hierarchy.value();
+                update_info.camera_view = _player._camera.view();
+                update_info.camera_projection = _player._projection;
+                model.update(update_info);
+              }
+            }));
 
     graph.add_task(
         geometry_task_id,
@@ -458,14 +545,14 @@ public:
                   vk::PipelineBindPoint::eGraphics,
                   _rendering->_geometry.pipeline->pipeline());
 
-              ecs::system::models_draw_info_t system_draw_info;
-              system_draw_info.manager = &_manager.value();
-              system_draw_info.commandbuffer = commandbuffer;
-              system_draw_info.flightframe = next_frame_info.flightframe;
-              system_draw_info.geometry_pipeline_layout =
-                  _rendering->_geometry.pipeline->layout();
-              ecs::system::models_draw(system_draw_info);
-
+              for (static_object_t &model : _static_objects) {
+                static_object_draw_info_t info;
+                info.commandbuffer = commandbuffer;
+                info.flightframe = next_frame_info.flightframe;
+                info.geometry_pipeline_layout =
+                    _rendering->_geometry.pipeline->layout();
+                model.draw(info);
+              }
               commandbuffer.endRenderPass();
             }));
 
@@ -523,15 +610,13 @@ private:
   std::optional<alex::texture_t> _chest_diffuse_texture;
   vk::UniqueSampler _chest_diffuse_texture_sampler;
 
-  std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
-  std::array<component_drawable_t, max_entities> mesh_components;
-  std::array<component_transform_t, max_entities> transform_components;
-  std::array<component_orbit_camera_t, orbit_camera_components_max>
-      orbit_camera_components;
-  std::optional<ecs::manager_t> _manager;
-
   alex::flightframe_array_t<alex::graph_t> _rendergraphs;
   alex::flightframe_array_t<vk::UniqueSemaphore> _rendergraph_semaphores;
+
+  std::vector<static_object_t> _static_objects;
+
+  std::optional<glm_transform_hierarchy> _transform_hierarchy;
+  player_t _player;
 };
 
 } // namespace game
