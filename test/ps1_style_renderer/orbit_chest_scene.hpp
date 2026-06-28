@@ -307,11 +307,6 @@ public:
     _chest_diffuse_texture_sampler =
         _core->device().createSamplerUnique(sampler_info);
 
-    auto allocated_diffuse_sampler_descriptorsets =
-        _core->allocate_repeated_descriptorsets(
-            _rendering->_geometry.setlayout.diffuse.get(),
-            vk::DescriptorType::eCombinedImageSampler, 2);
-
     /* ****************************************
      * Setup Static Object
      */

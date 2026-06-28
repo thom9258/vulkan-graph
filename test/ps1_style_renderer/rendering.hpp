@@ -3,42 +3,42 @@
 #include <alex/core.hpp>
 #include <alex/geometrypass_builder.hpp>
 #include <alex/memory_buffer.hpp>
+#include <alex/overlaypass_builder.hpp>
 #include <alex/pipeline_builder.hpp>
 #include <alex/presentation_context.hpp>
 #include <alex/texture.hpp>
 
+#include "include_glm.hpp"
 #include "mesh.hpp"
 
 #include <ranges>
 
 namespace game {
-	
+
 struct draw_info_t {
   glm::mat4 view;
   glm::mat4 projection;
   glm::mat4 model;
 };
 
-struct rendering_t {
-  vk::Extent3D _render_extent;
+struct geometry_rendering_t {
+  vk::Extent3D _extent;
 
-  struct geometry_t {
-    struct attachments_t {
-      std::vector<alex::texture_t> color;
-      std::vector<alex::texture_t> depth;
-    } attachments;
+  struct attachments_t {
+    std::vector<alex::texture_t> color;
+    std::vector<alex::texture_t> depth;
+  } attachments;
 
-    struct setlayout_t {
-      vk::UniqueDescriptorSetLayout diffuse;
-      vk::UniqueDescriptorSetLayout frame_uniform;
-    } setlayout;
+  struct setlayout_t {
+    vk::UniqueDescriptorSetLayout diffuse;
+    vk::UniqueDescriptorSetLayout frame_uniform;
+  } setlayout;
 
-    std::optional<alex::geometrypass_t> renderpass;
-    std::optional<alex::pipeline_t> pipeline;
-  } _geometry;
+  std::optional<alex::geometrypass_t> renderpass;
+  std::optional<alex::pipeline_t> pipeline;
 
-  constexpr rendering_t(alex::core_t &core, vk::Extent3D render_extent)
-      : _render_extent{render_extent} {
+  constexpr geometry_rendering_t(alex::core_t &core, vk::Extent3D extent)
+      : _extent{extent} {
 
     /* ****************************************
      * Create DescriptorSet Layout for geometry pipeline
@@ -56,9 +56,8 @@ struct rendering_t {
             .setFlags(vk::DescriptorSetLayoutCreateFlags())
             .setBindings(frame_uniform_bindings);
 
-    _geometry.setlayout.frame_uniform =
-        core.device().createDescriptorSetLayoutUnique(frame_uniform_setinfo,
-                                                      nullptr);
+    setlayout.frame_uniform = core.device().createDescriptorSetLayoutUnique(
+        frame_uniform_setinfo, nullptr);
 
     std::vector<vk::DescriptorSetLayoutBinding> diffuse_bindings(
         {vk::DescriptorSetLayoutBinding{}
@@ -72,14 +71,14 @@ struct rendering_t {
             .setFlags(vk::DescriptorSetLayoutCreateFlags())
             .setBindings(diffuse_bindings);
 
-    _geometry.setlayout.diffuse =
+    setlayout.diffuse =
         core.device().createDescriptorSetLayoutUnique(diffuse_setinfo, nullptr);
 
     alex::texture_info_t colorattachment_info;
     colorattachment_info.physical_device = core.physical_device();
     colorattachment_info.device = core.device();
-    colorattachment_info.extent.setWidth(render_extent.width)
-        .setHeight(render_extent.height);
+    colorattachment_info.extent.setWidth(_extent.width)
+        .setHeight(_extent.height);
 
     colorattachment_info.format = vk::Format::eR8G8B8A8Srgb;
     colorattachment_info.tiling = vk::ImageTiling::eOptimal;
@@ -93,14 +92,14 @@ struct rendering_t {
 
     for (auto _ :
          std::views::iota(0) | std::views::take(alex::frames_in_flight)) {
-      _geometry.attachments.color.emplace_back(colorattachment_info);
+      attachments.color.emplace_back(colorattachment_info);
     }
 
     alex::texture_info_t depthattachment_info;
     depthattachment_info.physical_device = core.physical_device();
     depthattachment_info.device = core.device();
-    depthattachment_info.extent.setWidth(render_extent.width)
-        .setHeight(render_extent.height);
+    depthattachment_info.extent.setWidth(_extent.width)
+        .setHeight(_extent.height);
 
     depthattachment_info.format = vk::Format::eD32Sfloat;
     depthattachment_info.tiling = vk::ImageTiling::eOptimal;
@@ -116,50 +115,49 @@ struct rendering_t {
 
     for (auto _ :
          std::views::iota(0) | std::views::take(alex::frames_in_flight)) {
-      _geometry.attachments.depth.emplace_back(depthattachment_info);
+      attachments.depth.emplace_back(depthattachment_info);
     }
 
     auto const get_view = [](alex::texture_t &texture) {
       return texture.view();
     };
 
-    auto color_views = _geometry.attachments.color |
-                       std::views::transform(get_view) |
+    auto color_views = attachments.color | std::views::transform(get_view) |
                        std::ranges::to<std::vector>();
 
     alex::flightframe_array_t<vk::ImageView> colorattachment_views;
     for (auto [i, view] : colorattachment_views | std::views::enumerate) {
-      view = _geometry.attachments.color[i].view();
+      view = attachments.color[i].view();
     }
 
     alex::flightframe_array_t<vk::ImageView> depthattachment_views;
     for (auto [i, view] : depthattachment_views | std::views::enumerate) {
-      view = _geometry.attachments.depth[i].view();
+      view = attachments.depth[i].view();
     }
 
     auto geometrypass_info = alex::geometrypass_info_t(core.device())
                                  .set_color_attachments(colorattachment_views)
                                  .set_color_format(vk::Format::eR8G8B8A8Srgb)
-                                 .set_color_clearvalue(0.0f, 0.0f, 0.0f, 1.0f)
+                                 .set_color_clearvalue(0.5f, 0.0f, 0.0f, 1.0f)
                                  .set_depth_format(vk::Format::eD32Sfloat)
                                  .set_depth_attachments(depthattachment_views)
                                  .set_depth_clearvalue(1.0f)
-                                 .set_extent(render_extent)
+                                 .set_extent(_extent)
                                  .set_loadop(vk::AttachmentLoadOp::eClear);
 
-    _geometry.renderpass.emplace(geometrypass_info);
+    renderpass.emplace(geometrypass_info);
 
     auto geometry_pipeline_info =
         alex::pipeline_info_t(core.device())
-            .set_extent(render_extent)
+            .set_extent(_extent)
             .set_polygon_mode(vk::PolygonMode::eFill)
             .set_cull_mode(vk::CullModeFlagBits::eBack)
             .set_front_face(vk::FrontFace::eCounterClockwise)
-            .set_renderpass(_geometry.renderpass->renderpass())
+            .set_renderpass(renderpass->renderpass())
             .set_vertex_program_path("./geometry.vert.spv")
             .set_fragment_program_path("./geometry.frag.spv")
-            .add_setlayout(_geometry.setlayout.frame_uniform.get())
-            .add_setlayout(_geometry.setlayout.diffuse.get())
+            .add_setlayout(setlayout.frame_uniform.get())
+            .add_setlayout(setlayout.diffuse.get())
             .add_vertex_input_binding(
                 vk::VertexInputBindingDescription{}
                     .setBinding(0)
@@ -194,7 +192,61 @@ struct rendering_t {
     constexpr std::size_t total_memory{10 * mb};
     std::vector<std::uint8_t> memory(total_memory);
     alex::memory::arena init_arena(memory);
-    _geometry.pipeline.emplace(geometry_pipeline_info, init_arena);
+    pipeline.emplace(geometry_pipeline_info, init_arena);
+  }
+};
+
+struct debugui_rendering_t {
+  vk::Extent3D _extent;
+
+  struct attachments_t {
+    std::vector<alex::texture_t> color;
+  } attachments;
+
+  std::optional<alex::overlaypass_t> renderpass;
+
+  constexpr debugui_rendering_t(alex::core_t &core, vk::Extent3D extent)
+      : _extent{extent} {
+    alex::texture_info_t colorattachment_info;
+    colorattachment_info.physical_device = core.physical_device();
+    colorattachment_info.device = core.device();
+    colorattachment_info.extent.setWidth(_extent.width)
+        .setHeight(_extent.height);
+
+    colorattachment_info.format = vk::Format::eR8G8B8A8Srgb;
+    colorattachment_info.tiling = vk::ImageTiling::eOptimal;
+    colorattachment_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
+    colorattachment_info.property_flags =
+        vk::MemoryPropertyFlagBits::eDeviceLocal;
+    colorattachment_info.usage = vk::ImageUsageFlagBits::eTransferDst |
+                                 vk::ImageUsageFlagBits::eTransferSrc |
+                                 vk::ImageUsageFlagBits::eSampled |
+                                 vk::ImageUsageFlagBits::eColorAttachment;
+
+    for (auto _ :
+         std::views::iota(0) | std::views::take(alex::frames_in_flight)) {
+      attachments.color.emplace_back(colorattachment_info);
+    }
+
+    auto const get_view = [](alex::texture_t &texture) {
+      return texture.view();
+    };
+
+    auto color_views = attachments.color | std::views::transform(get_view) |
+                       std::ranges::to<std::vector>();
+
+    alex::flightframe_array_t<vk::ImageView> colorattachment_views;
+    for (auto [i, view] : colorattachment_views | std::views::enumerate) {
+      view = attachments.color[i].view();
+    }
+
+    auto renderpass_info = alex::overlaypass_info_t(core.device())
+                               .set_color_attachments(colorattachment_views)
+                               .set_color_format(vk::Format::eR8G8B8A8Srgb)
+                               .set_extent(_extent)
+                               .set_loadop(vk::AttachmentLoadOp::eDontCare);
+
+    renderpass.emplace(renderpass_info);
   }
 };
 

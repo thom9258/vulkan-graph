@@ -1,6 +1,7 @@
 #include <alex/core.hpp>
 #include <alex/geometrypass_builder.hpp>
 #include <alex/memory_buffer.hpp>
+#include <alex/overlaypass_builder.hpp>
 #include <alex/pipeline_builder.hpp>
 #include <alex/presentation_context.hpp>
 #include <alex/texture_storage.hpp>
@@ -14,8 +15,10 @@
 #include "../utility/sdl.hpp"
 
 #include "bitmap.hpp"
-#include "orbit_chest_scene.hpp"
+// #include "orbit_chest_scene.hpp"
 #include "imgui_scene.hpp"
+#include "ps1_style_renderer/imgui_context.hpp"
+#include "ps1_style_renderer/static_resources.hpp"
 #include <chrono>
 #include <iostream>
 #include <ranges>
@@ -61,9 +64,9 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
-  vk::Extent3D render_extent(
-      static_cast<std::int32_t>(window_extent.width / 2),
-      static_cast<std::int32_t>(window_extent.height / 2), 1);
+  vk::Extent3D render_extent(static_cast<std::int32_t>(window_extent.width),
+                             static_cast<std::int32_t>(window_extent.height),
+                             1);
 
   alex::core_t core(core_info);
 
@@ -74,35 +77,51 @@ int main() {
   presenter_info.physical_device = core.physical_device();
   presenter_info.device = core.device();
   presenter_info.commandpool = core.commandpool();
-  presenter_info.enable_vsync = false;
+  presenter_info.enable_vsync = true;
   presenter_info.window_surface = window_surface.get();
   presenter_info.window_extent.width = window_extent.width;
   presenter_info.window_extent.height = window_extent.height;
   alex::presenter_t presenter(presenter_info);
 
-  game::rendering_t rendering(core, render_extent);
+  game::geometry_rendering_t geometry_rendering(core, render_extent);
+  game::debugui_rendering_t debugui_rendering(
+      core, vk::Extent3D(static_cast<std::int32_t>(window_extent.width),
+                         static_cast<std::int32_t>(window_extent.height), 1));
+
+  game::static_resources_t static_resources(&core);
 
   /* ****************************************
    * Create Scenes
    */
   scene::scenestack_t scenestack;
 
-  game::orbit_chest_scene_info_t chest_scene_info;
-  chest_scene_info.name = "Chest scene 1";
-  chest_scene_info.core = &core;
-  chest_scene_info.rendering = &rendering;
-  chest_scene_info.presenter = &presenter;
-  chest_scene_info.window = &window;
-  //scenestack.put(std::make_unique<game::orbit_chest_scene>(chest_scene_info));
+  // game::orbit_chest_scene_info_t chest_scene_info;
+  // chest_scene_info.name = "Chest scene 1";
+  // chest_scene_info.core = &core;
+  // chest_scene_info.geometry_rendering = &geometry_rendering;
+  // chest_scene_info.presenter = &presenter;
+  // chest_scene_info.window = &window;
+  // scenestack.put(std::make_unique<game::orbit_chest_scene>(chest_scene_info));
+
+  game::imgui_context_info_t imgui_context_info;
+  imgui_context_info.context = &context;
+  imgui_context_info.core = &core;
+  imgui_context_info.presenter = &presenter;
+  imgui_context_info.window = &window;
+  imgui_context_info.debugui_rendering = &debugui_rendering;
+
+  game::imgui_context_t imgui_context(imgui_context_info);
 
   game::imgui_scene_info_t imgui_scene_info;
-  imgui_scene_info.context = &context;
   imgui_scene_info.core = &core;
-  imgui_scene_info.rendering = &rendering;
+  imgui_scene_info.geometry_rendering = &geometry_rendering;
+  imgui_scene_info.debugui_rendering = &debugui_rendering;
   imgui_scene_info.presenter = &presenter;
+  imgui_scene_info.imgui_context = &imgui_context;
   imgui_scene_info.window = &window;
-  scenestack.put(std::make_unique<game::imgui_scene>(imgui_scene_info));
+  imgui_scene_info.static_resources = &static_resources;
 
+  scenestack.put(std::make_unique<game::imgui_scene>(imgui_scene_info));
 
   {
     auto now = std::chrono::high_resolution_clock::now();

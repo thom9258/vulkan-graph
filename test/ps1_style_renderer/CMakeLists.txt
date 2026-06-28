@@ -52,11 +52,15 @@ set(PROGRAM_SOURCES
   ../../alex/texture.cpp
   ../../alex/texture_storage.cpp
   ../../alex/geometrypass_builder.cpp
+  ../../alex/overlaypass_builder.cpp
   ../../alex/pipeline_builder.cpp
   ../../alex/uniform_descriptorsets.cpp
   
+  
   # Project specific
   thirdparty/stb_image.cpp
+  imgui_context.cpp
+  static_resources.cpp
   resource_loader.cpp
   bitmap.cpp
 )

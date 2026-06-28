@@ -90,7 +90,7 @@ constexpr window_t::window_t(window_info_t &info) {
 
   SDL_Vulkan_LoadLibrary(nullptr);
   _window = SDL_CreateWindow(info.name.data(), info.x, info.y, info.width,
-                             info.height, 0 | SDL_WINDOW_VULKAN);
+                             info.height, 0 | SDL_WINDOW_VULKAN | SDL_WINDOW_ALLOW_HIGHDPI);
 
   if (_window == nullptr) {
     info.error_handler("Could not create window!");
