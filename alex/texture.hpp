@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core.hpp"
+#include "memory_buffer.hpp"
 #include <string_view>
 
 namespace alex {

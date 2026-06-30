@@ -1,5 +1,4 @@
 #include <alex/core.hpp>
-#include <alex/drawing.hpp>
 #include <alex/geometrypass_builder.hpp>
 #include <alex/memory_buffer.hpp>
 #include <alex/pipeline_builder.hpp>
@@ -9,16 +8,11 @@
 #include <alex/task_graph.hpp>
 
 #include "alex/flightframe_array.hpp"
-#include "alex/log.hpp"
-
-#include "ecs.hpp"
 
 #include "../utility/button.hpp"
 #include "../utility/sdl.hpp"
 
-#include "cube_prefab.hpp"
-#include "draw_info_uniform.hpp"
-#include "glm.hpp"
+#include "ecs.hpp"
 #include "orbit_camera.hpp"
 
 #include <chrono>
@@ -95,7 +89,6 @@ int main() {
   /* ****************************************
    * Setup our meshes
    */
-
   std::array<ecs::manager_t::entity_t, max_entities> entity_memory;
   std::array<component_mesh_t, max_entities> mesh_components;
   std::array<component_transform_t, max_entities> transform_components;
@@ -230,7 +223,24 @@ int main() {
           .set_renderpass(geometry_pass.renderpass())
           .set_vertex_program_path("./geometry.vert.spv")
           .set_fragment_program_path("./geometry.frag.spv")
-          .add_setlayout(geometry_pipeline_info_setlayout.get());
+          .add_setlayout(geometry_pipeline_info_setlayout.get())
+          .add_vertex_input_binding(
+              vk::VertexInputBindingDescription{}
+                  .setBinding(0)
+                  .setStride(sizeof(vertex_t))
+                  .setInputRate(vk::VertexInputRate::eVertex))
+          .add_vertex_input_attribute(
+              vk::VertexInputAttributeDescription{}
+                  .setBinding(0)
+                  .setLocation(0)
+                  .setFormat(vk::Format::eR32G32B32Sfloat)
+                  .setOffset(offsetof(vertex_t, position)))
+          .add_vertex_input_attribute(
+              vk::VertexInputAttributeDescription{}
+                  .setBinding(0)
+                  .setLocation(1)
+                  .setFormat(vk::Format::eR32G32B32Sfloat)
+                  .setOffset(offsetof(vertex_t, color)));
 
   alex::pipeline_t geometry_pipeline(geometry_pipeline_info, init_arena);
 
@@ -362,7 +372,6 @@ int main() {
 
     auto upload_task_id = alex::task_id_t(0);
     auto geometry_task_id = alex::task_id_t(1);
-    auto present_task_id = alex::task_id_t(2);
 
     taskgraphs[next_frame_info.flightframe] = alex::graph_t();
     alex::graph_t &graph = taskgraphs[next_frame_info.flightframe];
@@ -474,19 +483,11 @@ int main() {
               commandbuffer.endRenderPass();
             }));
 
-    graph.add_task(present_task_id,
-                   std::make_unique<alex::simple_task_t>(
-                       "present", [](vk::CommandBuffer commandbuffer) {}));
-
     graph.add_dependency(alex::dependency_info_t{.device = core.device(),
                                                  .parent = upload_task_id,
                                                  .child = geometry_task_id});
 
-    graph.add_dependency(alex::dependency_info_t{.device = core.device(),
-                                                 .parent = geometry_task_id,
-                                                 .child = present_task_id});
-
-    graph.set_end(present_task_id);
+    graph.set_end(geometry_task_id);
 
     vk::Semaphore graph_finished_semaphore =
         taskgraph_semaphores[next_frame_info.flightframe].get();

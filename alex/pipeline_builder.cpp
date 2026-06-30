@@ -1,5 +1,4 @@
 #include "pipeline_builder.hpp"
-#include "drawing.hpp"
 #include "log.hpp"
 #include "read_spirv_source.hpp"
 #include <vulkan/vulkan_enums.hpp>
@@ -10,6 +9,21 @@ pipeline_info_t::pipeline_info_t(vk::Device device) : device{device} {}
 
 pipeline_info_t &pipeline_info_t::set_extent(vk::Extent3D extent) {
   this->extent = extent;
+  return *this;
+}
+
+pipeline_info_t &pipeline_info_t::set_polygon_mode(vk::PolygonMode mode) {
+  this->polygon_mode = polygon_mode;
+  return *this;
+}
+
+pipeline_info_t &pipeline_info_t::set_cull_mode(vk::CullModeFlags cull_mode) {
+  this->cull_mode = cull_mode;
+  return *this;
+}
+
+pipeline_info_t &pipeline_info_t::set_front_face(vk::FrontFace front_face) {
+  this->front_face = front_face;
   return *this;
 }
 
@@ -33,6 +47,18 @@ pipeline_info_t::set_fragment_program_path(std::filesystem::path path) {
 pipeline_info_t &
 pipeline_info_t::add_setlayout(vk::DescriptorSetLayout setlayout) {
   setlayouts.push_back(setlayout);
+  return *this;
+}
+
+pipeline_info_t &pipeline_info_t::add_vertex_input_binding(
+    vk::VertexInputBindingDescription binding) {
+  vertex_bindings.push_back(binding);
+  return *this;
+}
+
+pipeline_info_t &pipeline_info_t::add_vertex_input_attribute(
+    vk::VertexInputAttributeDescription attribute) {
+  vertex_attributes.push_back(attribute);
   return *this;
 }
 
@@ -79,46 +105,11 @@ pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
   auto pipelineDynamicStateCreateInfo =
       vk::PipelineDynamicStateCreateInfo{}.setDynamicStates(dynamic_states);
 
-  std::array<vk::VertexInputBindingDescription,
-             1> constexpr vertex_binding_descriptions{
-      vk::VertexInputBindingDescription{}
-          .setBinding(0)
-          .setStride(sizeof(vertex_t))
-          .setInputRate(vk::VertexInputRate::eVertex),
-  };
-
-  std::array<vk::VertexInputAttributeDescription,
-             4> constexpr vertex_attribute_descriptions{
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(0)
-          .setFormat(vk::Format::eR32G32B32Sfloat)
-          .setOffset(offsetof(vertex_t, position)),
-
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(1)
-          .setFormat(vk::Format::eR32G32B32Sfloat)
-          .setOffset(offsetof(vertex_t, normal)),
-
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(2)
-          .setFormat(vk::Format::eR32G32B32Sfloat)
-          .setOffset(offsetof(vertex_t, color)),
-
-      vk::VertexInputAttributeDescription{}
-          .setBinding(0)
-          .setLocation(3)
-          .setFormat(vk::Format::eR32G32Sfloat)
-          .setOffset(offsetof(vertex_t, texcoord)),
-  };
-
   auto pipelineVertexInputStateCreateInfo =
       vk::PipelineVertexInputStateCreateInfo{}
           .setFlags(vk::PipelineVertexInputStateCreateFlags())
-          .setVertexBindingDescriptions(vertex_binding_descriptions)
-          .setVertexAttributeDescriptions(vertex_attribute_descriptions);
+          .setVertexBindingDescriptions(info.vertex_bindings)
+          .setVertexAttributeDescriptions(info.vertex_attributes);
 
   auto pipelineInputAssemblyStateCreateInfo =
       vk::PipelineInputAssemblyStateCreateInfo{}

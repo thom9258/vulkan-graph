@@ -5,6 +5,8 @@
 
 namespace alex {
 
+#if 0
+
 struct uniform_descriptorsets_info_t {
   vk::PhysicalDevice physical_device;
   vk::Device device;
@@ -35,5 +37,6 @@ struct uniform_descriptorsets_t {
 
   std::vector<vk::UniqueDescriptorSet> sets;
 };
+#endif
 
 } // namespace alex

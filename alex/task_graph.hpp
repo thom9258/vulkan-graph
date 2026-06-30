@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <concepts>
 #include <functional>
+#include <memory>
 #include <map>
 #include <print>
 #include <ranges>

@@ -6,6 +6,7 @@
 #include <ranges>
 
 namespace alex {
+#if 0
 
 uniform_descriptorsets_t::uniform_descriptorsets_t(
     uniform_descriptorsets_info_t &info) {
@@ -52,5 +53,6 @@ vk::DescriptorSet uniform_descriptorsets_t::get_set(std::size_t i) {
                 i, sets.size())
   return sets[i].get();
 }
+#endif
 
 } // namespace alex

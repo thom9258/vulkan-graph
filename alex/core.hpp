@@ -6,6 +6,7 @@
 #include <functional>
 #include <span>
 #include <type_traits>
+#include <vulkan/vulkan_handles.hpp>
 
 namespace alex {
 
@@ -49,6 +50,16 @@ public:
   template <typename F>
     requires requires(F f, vk::CommandBuffer cmdb) { f(cmdb); }
   constexpr auto immediate_evaluate(F &&f) -> vk::Result;
+
+  struct allocated_descriptorsets_t {
+    vk::UniqueDescriptorPool pool;
+    std::vector<vk::UniqueDescriptorSet> sets;
+  };
+
+  auto allocate_repeated_descriptorsets(vk::DescriptorSetLayout layout,
+                                        vk::DescriptorType type,
+                                        std::uint32_t count)
+      -> allocated_descriptorsets_t;
 
 private:
   vk::PhysicalDevice _physical_device;

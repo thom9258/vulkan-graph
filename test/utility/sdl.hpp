@@ -55,6 +55,7 @@ public:
   constexpr window_t(const window_t &) = delete;
   constexpr window_t &operator=(const window_t &) = delete;
 
+  constexpr auto window() -> SDL_Window *;
   constexpr auto mark_next_frame() -> void;
 
   constexpr auto get_events() -> std::span<SDL_Event>;
@@ -89,7 +90,7 @@ constexpr window_t::window_t(window_info_t &info) {
 
   SDL_Vulkan_LoadLibrary(nullptr);
   _window = SDL_CreateWindow(info.name.data(), info.x, info.y, info.width,
-                             info.height, 0 | SDL_WINDOW_VULKAN);
+                             info.height, 0 | SDL_WINDOW_VULKAN | SDL_WINDOW_ALLOW_HIGHDPI);
 
   if (_window == nullptr) {
     info.error_handler("Could not create window!");
@@ -117,6 +118,8 @@ constexpr auto window_t::mark_next_frame() -> void {
     _current_frame_time = chrono_clock_t::now();
   }
 }
+
+constexpr auto window_t::window() -> SDL_Window * { return _window; }
 
 constexpr auto window_t::get_events() -> std::span<SDL_Event> {
   return _current_events;

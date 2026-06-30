@@ -265,4 +265,36 @@ auto core_t::create_semaphore() -> vk::UniqueSemaphore {
   return device().createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 }
 
+auto core_t::allocate_repeated_descriptorsets(vk::DescriptorSetLayout layout,
+                                              vk::DescriptorType type,
+                                              std::uint32_t count)
+    -> allocated_descriptorsets_t {
+
+  allocated_descriptorsets_t allocated;
+
+  std::vector<vk::DescriptorPoolSize> const pool_sizes{
+      vk::DescriptorPoolSize{}.setDescriptorCount(count).setType(type)};
+
+  auto pool_create_info =
+      vk::DescriptorPoolCreateInfo{}
+          .setPoolSizes(pool_sizes)
+          .setMaxSets(count)
+          .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+
+  allocated.pool = device().createDescriptorPoolUnique(pool_create_info);
+
+  auto layouts =
+      std::views::repeat(layout, count) | std::ranges::to<std::vector>();
+  auto alloc_info = vk::DescriptorSetAllocateInfo{}
+                        .setDescriptorPool(allocated.pool.get())
+                        .setSetLayouts(layouts);
+
+  allocated.sets = device().allocateDescriptorSetsUnique(alloc_info);
+  ALEX_ERROR_IF(allocated.sets.size() != count,
+                "could not allocate {} descriptor sets got {} instead", count,
+                allocated.sets.size())
+
+  return allocated;
+}
+
 } // namespace alex
