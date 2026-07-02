@@ -8,38 +8,14 @@ namespace game {
 static_resources_t::static_resources_t(alex::core_t *core) : _core{core} {}
 
 auto static_resources_t::chest_texture() -> alex::texture_t * {
-  if (!_chest.has_value()) {
-    load_chest();
-  }
+  load_chest_texture();
 
-  return &_chest->diffuse_texture;
+  return &_chest.diffuse_texture.value();
 }
 
-auto static_resources_t::chest_model() -> model_source_t * {
-  if (!_chest.has_value()) {
-    load_chest();
-  }
-
-  return &_chest->model;
-}
-
-auto static_resources_t::chest_texture_sampler() -> vk::Sampler {
-  if (!_chest.has_value()) {
-    load_chest();
-  }
-
-  return _chest->diffuse_texture_sampler.get();
-}
-
-auto static_resources_t::load_chest() -> void {
-  model_load_info_t chest_load_info;
-  chest_load_info.core = _core;
-  chest_load_info.path = "/home/th/Assets/ChestWowStyle/Chest.obj";
-  auto chest = model_source_t::create(chest_load_info);
-  if (!chest.has_value()) {
-    throw std::runtime_error(std::format(
-        "static resource load error: [code: {}] {}",
-        game::to_string(chest.error().code()), chest.error().error()));
+auto static_resources_t::load_chest_texture() -> void {
+  if (_chest.diffuse_texture.has_value()) {
+    return;
   }
 
   auto chest_diffuse_bitmap = game::bitmap_t::create(
@@ -68,8 +44,7 @@ auto static_resources_t::load_chest() -> void {
   chest_diffuse_texture_info.usage =
       vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
 
-  _chest.emplace(std::move(chest.value(), alex::texture_t(chest_diffuse_texture_info)));
-
+  _chest.diffuse_texture.emplace(chest_diffuse_texture_info);
 
   _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
     // Transition image to color override
@@ -84,7 +59,7 @@ auto static_resources_t::load_chest() -> void {
       auto barrier = vk::ImageMemoryBarrier{}
                          .setOldLayout(vk::ImageLayout::eUndefined)
                          .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-                         .setImage(_chest_diffuse_texture->image())
+                         .setImage(_chest.diffuse_texture->image())
                          .setSubresourceRange(range)
                          .setSrcAccessMask(vk::AccessFlags())
                          .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
@@ -119,7 +94,7 @@ auto static_resources_t::load_chest() -> void {
                         .setImageExtent(extent);
 
       commandbuffer.copyBufferToImage(
-          chest_diffuse_buffer.buffer(), _chest_diffuse_texture->image(),
+          chest_diffuse_buffer.buffer(), _chest.diffuse_texture->image(),
           vk::ImageLayout::eTransferDstOptimal, region);
     }
 
@@ -136,7 +111,7 @@ auto static_resources_t::load_chest() -> void {
       auto barrier = vk::ImageMemoryBarrier{}
                          .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
                          .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-                         .setImage(_chest_diffuse_texture->image())
+                         .setImage(_chest.diffuse_texture->image())
                          .setSubresourceRange(source_range)
                          .setSrcAccessMask(vk::AccessFlags())
                          .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
@@ -147,8 +122,36 @@ auto static_resources_t::load_chest() -> void {
                                     barrier);
     }
   });
+}
 
-  // Construct a sampler for the texture
+auto static_resources_t::load_chest_model() -> void {
+  if (_chest.model.has_value()) {
+    return;
+  }
+
+  model_load_info_t chest_load_info;
+  chest_load_info.core = _core;
+  chest_load_info.path = "/home/th/Assets/ChestWowStyle/Chest.obj";
+  auto chest = model_source_t::create(chest_load_info);
+  if (!chest.has_value()) {
+    throw std::runtime_error(std::format(
+        "static resource load error: [code: {}] {}",
+        game::to_string(chest.error().code()), chest.error().error()));
+  }
+
+  _chest.model = std::move(chest.value());
+}
+
+auto static_resources_t::chest_model() -> model_source_t * {
+  load_chest_model();
+  return &_chest.model.value();
+}
+
+auto static_resources_t::load_chest_texture_sampler() -> void {
+  if (_chest.diffuse_texture_sampler.has_value()) {
+    return;
+  }
+
   const auto features = _core->physical_device().getFeatures();
   const auto properties = _core->physical_device().getProperties();
   const auto max_anisotropy =
@@ -175,8 +178,14 @@ auto static_resources_t::load_chest() -> void {
           .setMinLod(0.0f)
           .setMaxLod(0.0f);
 
-  _chest_diffuse_texture_sampler =
+  _chest.diffuse_texture_sampler =
       _core->device().createSamplerUnique(sampler_info);
+}
+
+auto static_resources_t::chest_texture_sampler() -> vk::Sampler {
+  load_chest_texture();
+  load_chest_texture_sampler();
+  return _chest.diffuse_texture_sampler.value().get();
 }
 
 } // namespace game

@@ -8,10 +8,10 @@
 #include "../utility/sdl.hpp"
 
 #include "glm_transform_hierarchy.hpp"
-#include "static_object.hpp"
-#include "static_resources.hpp"
 #include "imgui_context.hpp"
 #include "rendering.hpp"
+#include "static_object.hpp"
+#include "static_resources.hpp"
 
 #include <vulkan/vulkan_to_string.hpp>
 
@@ -26,7 +26,7 @@ struct imgui_scene_info_t {
   geometry_rendering_t *geometry_rendering{nullptr};
   debugui_rendering_t *debugui_rendering{nullptr};
   imgui_context_t *imgui_context{nullptr};
-  static_resources_t* static_resources{nullptr};
+  static_resources_t *static_resources{nullptr};
 };
 
 class imgui_scene : public scene::scene_t {
@@ -48,139 +48,152 @@ private:
   geometry_rendering_t *_geometry_rendering{nullptr};
   debugui_rendering_t *_debugui_rendering{nullptr};
   imgui_context_t *_imgui_context{nullptr};
-  static_resources_t* _static_resources{nullptr};
+  static_resources_t *_static_resources{nullptr};
 
   alex::flightframe_array_t<alex::graph_t> _rendergraphs;
   alex::flightframe_array_t<vk::UniqueSemaphore> _rendergraph_semaphores;
 
   std::vector<static_object_t> _static_objects;
   std::optional<glm_transform_hierarchy> _transform_hierarchy;
-
 };
 
 imgui_scene::imgui_scene(imgui_scene_info_t &info)
     : _core{info.core}, _presenter{info.presenter}, _window{info.window},
       _geometry_rendering{info.geometry_rendering},
       _debugui_rendering{info.debugui_rendering},
-      _imgui_context{info.imgui_context}, _static_resources{info.static_resources} {
+      _imgui_context{info.imgui_context},
+      _static_resources{info.static_resources} {
 
   for (vk::UniqueSemaphore &semaphore : _rendergraph_semaphores) {
     semaphore = _core->create_semaphore();
   }
 
+  _transform_hierarchy = glm_transform_hierarchy(256);
 
-    _transform_hierarchy = glm_transform_hierarchy(256);
+  {
+    static_object_t chest;
+    glm::mat4 model_matrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
+    chest.transform_id = _transform_hierarchy->add(model_matrix).value();
 
-    {
-      static_object_t chest;
-      glm::mat4 model_matrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
-      chest.transform_id = _transform_hierarchy->add(model_matrix).value();
+    chest.vertices = &_static_resources->chest_model()
+                          ->root()
+                          .children[0]
+                          .meshes[0]
+                          .vertices.value();
 
-      chest.vertices =
-          &(_chest.value().root().children.at(0).meshes.at(0).vertices.value());
-      chest.vertices_length =
-          _chest.value().root().children.at(0).meshes.at(0).vertices_length;
+    chest.vertices_length = _static_resources->chest_model()
+                                ->root()
+                                .children[0]
+                                .meshes[0]
+                                .vertices_length;
 
-      chest.indices =
-          &(_chest.value().root().children.at(0).meshes.at(0).indices.value());
-      chest.indices_length =
-          _chest.value().root().children.at(0).meshes.at(0).indices_length;
+    chest.indices = &_static_resources->chest_model()
+                         ->root()
+                         .children[0]
+                         .meshes[0]
+                         .indices.value();
 
-      _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
-        draw_info_t draw_info;
+    chest.indices_length = _static_resources->chest_model()
+                               ->root()
+                               .children[0]
+                               .meshes[0]
+                               .indices_length;
 
-        alex::direct_memory_buffer_info_t direct_uniform_info;
-        direct_uniform_info.physical_device = _core->physical_device();
-        direct_uniform_info.device = _core->device();
-        direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-        direct_uniform_info.memory_size = sizeof(draw_info);
+    _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
+      draw_info_t draw_info;
 
-        for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
-          chest.direct_uniforms.emplace_back(direct_uniform_info);
-          std::memcpy(chest.direct_uniforms.back().memory_ptr(), &draw_info,
-                      sizeof(draw_info));
-        }
+      alex::direct_memory_buffer_info_t direct_uniform_info;
+      direct_uniform_info.physical_device = _core->physical_device();
+      direct_uniform_info.device = _core->device();
+      direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
+      direct_uniform_info.memory_size = sizeof(draw_info);
 
-        for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
-          alex::memory_buffer_info_t uniform_info;
-          uniform_info.physical_device = _core->physical_device();
-          uniform_info.device = _core->device();
-          uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
-          uniform_info.memory_size = direct_uniform_info.memory_size;
-          chest.uniforms.emplace_back(uniform_info);
+      for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
+        chest.direct_uniforms.emplace_back(direct_uniform_info);
+        std::memcpy(chest.direct_uniforms.back().memory_ptr(), &draw_info,
+                    sizeof(draw_info));
+      }
 
-          alex::memory_buffer_write_info_t write_info;
-          write_info.physical_device = _core->physical_device();
-          write_info.device = _core->device();
-          write_info.direct = &chest.direct_uniforms[i];
-          write_info.write_size = chest.uniforms.back().memory_size();
-          write_info.commandbuffer = commandbuffer;
-          chest.uniforms.back().record_write(write_info);
-        }
+      for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
+        alex::memory_buffer_info_t uniform_info;
+        uniform_info.physical_device = _core->physical_device();
+        uniform_info.device = _core->device();
+        uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
+        uniform_info.memory_size = direct_uniform_info.memory_size;
+        chest.uniforms.emplace_back(uniform_info);
 
-        auto allocated_frame_uniform_descriptorsets =
-            _core->allocate_repeated_descriptorsets(
-                _rendering->_geometry.setlayout.frame_uniform.get(),
-                vk::DescriptorType::eUniformBuffer, 2);
+        alex::memory_buffer_write_info_t write_info;
+        write_info.physical_device = _core->physical_device();
+        write_info.device = _core->device();
+        write_info.direct = &chest.direct_uniforms[i];
+        write_info.write_size = chest.uniforms.back().memory_size();
+        write_info.commandbuffer = commandbuffer;
+        chest.uniforms.back().record_write(write_info);
+      }
 
-        chest.uniform_descriptor_pool =
-            std::move(allocated_frame_uniform_descriptorsets.pool);
-        chest.uniform_descriptorsets =
-            std::move(allocated_frame_uniform_descriptorsets.sets);
+      auto allocated_frame_uniform_descriptorsets =
+          _core->allocate_repeated_descriptorsets(
+              _geometry_rendering->setlayout.frame_uniform.get(),
+              vk::DescriptorType::eUniformBuffer, 2);
 
-        for (auto [i, uniform] : chest.uniforms | std::views::enumerate) {
-          const auto buffer_info = vk::DescriptorBufferInfo{}
-                                       .setBuffer(uniform.buffer())
-                                       .setOffset(0)
-                                       .setRange(uniform.memory_size());
+      chest.uniform_descriptor_pool =
+          std::move(allocated_frame_uniform_descriptorsets.pool);
+      chest.uniform_descriptorsets =
+          std::move(allocated_frame_uniform_descriptorsets.sets);
 
-          const std::array<vk::WriteDescriptorSet, 1> writes{
-              vk::WriteDescriptorSet{}
-                  .setDstBinding(0)
-                  .setDstArrayElement(0)
-                  .setDstSet(chest.uniform_descriptorsets[i].get())
-                  .setDescriptorCount(1)
-                  .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-                  .setBufferInfo(buffer_info)};
+      for (auto [i, uniform] : chest.uniforms | std::views::enumerate) {
+        const auto buffer_info = vk::DescriptorBufferInfo{}
+                                     .setBuffer(uniform.buffer())
+                                     .setOffset(0)
+                                     .setRange(uniform.memory_size());
 
-          _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
-                                               nullptr);
-        }
+        const std::array<vk::WriteDescriptorSet, 1> writes{
+            vk::WriteDescriptorSet{}
+                .setDstBinding(0)
+                .setDstArrayElement(0)
+                .setDstSet(chest.uniform_descriptorsets[i].get())
+                .setDescriptorCount(1)
+                .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                .setBufferInfo(buffer_info)};
 
-        auto allocated_diffuse_descriptorsets =
-            _core->allocate_repeated_descriptorsets(
-                _geometry_rendering->setlayout.diffuse.get(),
-                vk::DescriptorType::eCombinedImageSampler, 2);
+        _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
+                                             nullptr);
+      }
 
-        chest.diffuse_descriptor_pool =
-            std::move(allocated_diffuse_descriptorsets.pool);
-        chest.diffuse_descriptorsets =
-            std::move(allocated_diffuse_descriptorsets.sets);
+      auto allocated_diffuse_descriptorsets =
+          _core->allocate_repeated_descriptorsets(
+              _geometry_rendering->setlayout.diffuse.get(),
+              vk::DescriptorType::eCombinedImageSampler, 2);
 
-        for (vk::UniqueDescriptorSet &diffuse_set :
-             chest.diffuse_descriptorsets) {
-          const auto image_info =
-              vk::DescriptorImageInfo{}
-                  .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-                  .setSampler(_static_resources->chest_texture_sampler())
-                  .setImageView(_static_resources->chest_texture()->view());
+      chest.diffuse_descriptor_pool =
+          std::move(allocated_diffuse_descriptorsets.pool);
+      chest.diffuse_descriptorsets =
+          std::move(allocated_diffuse_descriptorsets.sets);
 
-          const std::array<vk::WriteDescriptorSet, 1> writes{
-              vk::WriteDescriptorSet{}
-                  .setDstBinding(0)
-                  .setDstArrayElement(0)
-                  .setDstSet(diffuse_set.get())
-                  .setDescriptorCount(1)
-                  .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-                  .setImageInfo(image_info)};
+      for (vk::UniqueDescriptorSet &diffuse_set :
+           chest.diffuse_descriptorsets) {
+        const auto image_info =
+            vk::DescriptorImageInfo{}
+                .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+                .setSampler(_static_resources->chest_texture_sampler())
+                .setImageView(_static_resources->chest_texture()->view());
 
-          _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
-                                               nullptr);
-        }
-      });
+        const std::array<vk::WriteDescriptorSet, 1> writes{
+            vk::WriteDescriptorSet{}
+                .setDstBinding(0)
+                .setDstArrayElement(0)
+                .setDstSet(diffuse_set.get())
+                .setDescriptorCount(1)
+                .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                .setImageInfo(image_info)};
 
-      _static_objects.push_back(std::move(chest));
-    }
+        _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
+                                             nullptr);
+      }
+    });
+
+    _static_objects.push_back(std::move(chest));
+  }
 }
 
 constexpr imgui_scene::~imgui_scene() {}
