@@ -64,8 +64,8 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
-  vk::Extent3D render_extent(static_cast<std::int32_t>(window_extent.width),
-                             static_cast<std::int32_t>(window_extent.height),
+  vk::Extent3D render_extent(static_cast<std::int32_t>(window_extent.width / 4),
+                             static_cast<std::int32_t>(window_extent.height / 4),
                              1);
 
   alex::core_t core(core_info);

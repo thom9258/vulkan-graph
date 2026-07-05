@@ -39,7 +39,6 @@ auto static_resources_t::load_chest_texture() -> void {
       vk::Extent2D{static_cast<std::uint32_t>(chest_diffuse_bitmap->width()),
                    static_cast<std::uint32_t>(chest_diffuse_bitmap->height())};
   chest_diffuse_texture_info.format = chest_diffuse_texture_format;
-
   chest_diffuse_texture_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
   chest_diffuse_texture_info.usage =
       vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;

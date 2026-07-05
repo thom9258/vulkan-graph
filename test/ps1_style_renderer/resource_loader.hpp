@@ -4,10 +4,11 @@
 #include <alex/memory_buffer.hpp>
 #include <alex/texture.hpp>
 
+#include "alex/flightframe_array.hpp"
+#include "bitmap.hpp"
 #include "include_assimp.hpp"
 #include "include_glm.hpp"
 #include "mesh.hpp"
-#include "bitmap.hpp"
 
 #include <expected>
 #include <filesystem>
@@ -17,14 +18,24 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <vulkan/vulkan_handles.hpp>
 
 namespace game {
 
 struct material_t {
   std::string name;
+
   std::optional<alex::texture_t> diffuse;
+  std::optional<vk::UniqueSampler> diffuse_sampler;
+  std::optional<alex::flightframe_array_t<vk::UniqueDescriptorSet>> diffuse_descriptorsets;
+
   std::optional<alex::texture_t> specular;
+  std::optional<vk::UniqueSampler> specular_sampler;
+  std::optional<alex::flightframe_array_t<vk::UniqueDescriptorSet>> specular_descriptorsets;
+
   std::optional<alex::texture_t> ambient;
+  std::optional<vk::UniqueSampler> ambient_sampler;
+  std::optional<alex::flightframe_array_t<vk::UniqueDescriptorSet>> ambient_descriptorsets;
 };
 
 struct mesh_t {
@@ -51,7 +62,11 @@ struct model_load_info_t {
     bool limit_bone_weights{true};
     bool flip_uvs{true};
     bool fix_infacing_normals{true};
-  } mesh_adapters;
+  } mesh;
+
+  struct {
+    vk::Filter filter{vk::Filter::eLinear};
+  } texture;
 };
 
 class load_error_t {
@@ -95,8 +110,10 @@ constexpr auto to_string(load_error_t::code_t e) -> std::string_view {
 
 class model_source_t {
 public:
-  model_source_t(std::filesystem::path path, model_t root,
-                 std::vector<material_t> materials);
+  using chrono_clock_t = std::chrono::high_resolution_clock;
+  using chrono_time_point_t = std::chrono::time_point<chrono_clock_t>;
+
+  model_source_t(std::filesystem::path path, model_t root);
   model_source_t(const model_source_t &) = delete;
   model_source_t(model_source_t &&) = default;
   model_source_t &operator=(const model_source_t &) = delete;
@@ -107,15 +124,20 @@ public:
       -> std::expected<model_source_t, load_error_t>;
 
   auto path() const -> std::filesystem::path;
-  auto loadtime_seconds() const -> double;
+  auto loadtime_seconds() const -> std::optional<double>;
   auto root() -> model_t &;
-  auto materials() -> std::span<material_t>;
+  auto find_material(std::string_view name) -> material_t *;
 
 private:
-  using chrono_clock_t = std::chrono::high_resolution_clock;
-  using chrono_time_point_t = std::chrono::time_point<chrono_clock_t>;
-  chrono_time_point_t start;
-  chrono_time_point_t end;
+  auto add_material(material_t &&material) -> material_t *;
+  auto set_loadtime(chrono_time_point_t start, chrono_time_point_t end) -> void;
+
+  struct loadtime_t {
+    chrono_time_point_t start;
+    chrono_time_point_t end;
+  };
+
+  std::optional<loadtime_t> _loadtime;
   std::filesystem::path _path;
   model_t _root;
   std::vector<material_t> _materials;

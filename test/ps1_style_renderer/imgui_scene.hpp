@@ -4,15 +4,19 @@
 #include <alex/flightframe_array.hpp>
 #include <alex/task_graph.hpp>
 
+#include "../utility/orbit_camera.hpp"
 #include "../utility/scenestack.hpp"
 #include "../utility/sdl.hpp"
 
 #include "glm_transform_hierarchy.hpp"
+#include "imgui.h"
 #include "imgui_context.hpp"
 #include "rendering.hpp"
 #include "static_object.hpp"
 #include "static_resources.hpp"
+#include "ui_hierarchy.hpp"
 
+#include <glm/ext/matrix_transform.hpp>
 #include <vulkan/vulkan_to_string.hpp>
 
 #include <print>
@@ -41,6 +45,8 @@ public:
   constexpr auto update_input() -> scene::status_t;
   constexpr auto update_render() -> scene::status_t;
 
+  constexpr auto create_chest(glm::mat4 model_matrix) -> static_object_t;
+
 private:
   alex::core_t *_core{nullptr};
   alex::presenter_t *_presenter{nullptr};
@@ -55,7 +61,134 @@ private:
 
   std::vector<static_object_t> _static_objects;
   std::optional<glm_transform_hierarchy> _transform_hierarchy;
+  game::ui_hierarchy_t _ui_hierarchy;
+
+  OrbitCamera _camera;
+  glm::mat4 _camera_projection;
 };
+
+constexpr auto imgui_scene::create_chest(glm::mat4 model_matrix) -> static_object_t {
+  static_object_t chest;
+  chest.transform_id = _transform_hierarchy->add(model_matrix).value();
+
+  chest.vertices = &_static_resources->chest_model()
+                        ->root()
+                        .children[0]
+                        .meshes[0]
+                        .vertices.value();
+
+  chest.vertices_length = _static_resources->chest_model()
+                              ->root()
+                              .children[0]
+                              .meshes[0]
+                              .vertices_length;
+
+  chest.indices = &_static_resources->chest_model()
+                       ->root()
+                       .children[0]
+                       .meshes[0]
+                       .indices.value();
+
+  chest.indices_length = _static_resources->chest_model()
+                             ->root()
+                             .children[0]
+                             .meshes[0]
+                             .indices_length;
+
+  _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
+    draw_info_t draw_info;
+
+    alex::direct_memory_buffer_info_t direct_uniform_info;
+    direct_uniform_info.physical_device = _core->physical_device();
+    direct_uniform_info.device = _core->device();
+    direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
+    direct_uniform_info.memory_size = sizeof(draw_info);
+
+    for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
+      chest.direct_uniforms.emplace_back(direct_uniform_info);
+      std::memcpy(chest.direct_uniforms.back().memory_ptr(), &draw_info,
+                  sizeof(draw_info));
+    }
+
+    for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
+      alex::memory_buffer_info_t uniform_info;
+      uniform_info.physical_device = _core->physical_device();
+      uniform_info.device = _core->device();
+      uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
+      uniform_info.memory_size = direct_uniform_info.memory_size;
+      chest.uniforms.emplace_back(uniform_info);
+
+      alex::memory_buffer_write_info_t write_info;
+      write_info.physical_device = _core->physical_device();
+      write_info.device = _core->device();
+      write_info.direct = &chest.direct_uniforms[i];
+      write_info.write_size = chest.uniforms.back().memory_size();
+      write_info.commandbuffer = commandbuffer;
+      chest.uniforms.back().record_write(write_info);
+    }
+
+    auto allocated_frame_uniform_descriptorsets =
+        _core->allocate_repeated_descriptorsets(
+            _geometry_rendering->setlayout.frame_uniform.get(),
+            vk::DescriptorType::eUniformBuffer, 2);
+
+    chest.uniform_descriptor_pool =
+        std::move(allocated_frame_uniform_descriptorsets.pool);
+    chest.uniform_descriptorsets =
+        std::move(allocated_frame_uniform_descriptorsets.sets);
+
+    for (auto [i, uniform] : chest.uniforms | std::views::enumerate) {
+      const auto buffer_info = vk::DescriptorBufferInfo{}
+                                   .setBuffer(uniform.buffer())
+                                   .setOffset(0)
+                                   .setRange(uniform.memory_size());
+
+      const std::array<vk::WriteDescriptorSet, 1> writes{
+          vk::WriteDescriptorSet{}
+              .setDstBinding(0)
+              .setDstArrayElement(0)
+              .setDstSet(chest.uniform_descriptorsets[i].get())
+              .setDescriptorCount(1)
+              .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+              .setBufferInfo(buffer_info)};
+
+      _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
+                                           nullptr);
+    }
+
+    auto allocated_diffuse_descriptorsets =
+        _core->allocate_repeated_descriptorsets(
+            _geometry_rendering->setlayout.diffuse.get(),
+            vk::DescriptorType::eCombinedImageSampler, 2);
+
+    chest.diffuse_descriptor_pool =
+        std::move(allocated_diffuse_descriptorsets.pool);
+    chest.diffuse_descriptorsets =
+        std::move(allocated_diffuse_descriptorsets.sets);
+
+    for (vk::UniqueDescriptorSet &diffuse_set : chest.diffuse_descriptorsets) {
+      const auto image_info =
+          vk::DescriptorImageInfo{}
+              .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+              .setSampler(_static_resources->chest_texture_sampler())
+              .setImageView(_static_resources->chest_texture()->view());
+
+      const std::array<vk::WriteDescriptorSet, 1> writes{
+          vk::WriteDescriptorSet{}
+              .setDstBinding(0)
+              .setDstArrayElement(0)
+              .setDstSet(diffuse_set.get())
+              .setDescriptorCount(1)
+              .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+              .setImageInfo(image_info)};
+
+      _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
+                                           nullptr);
+    }
+  });
+
+  return chest;
+}
 
 imgui_scene::imgui_scene(imgui_scene_info_t &info)
     : _core{info.core}, _presenter{info.presenter}, _window{info.window},
@@ -64,136 +197,37 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
       _imgui_context{info.imgui_context},
       _static_resources{info.static_resources} {
 
+  float const camera_radius = 10.0f;
+  glm::vec3 const target(0.0f, 0.5f, 0.0f);
+  _camera = OrbitCamera(target, camera_radius);
+
+  const float aspect = _window->window_extent().aspect();
+  const float near_plane = 0.1f, far_plane = 200.0f;
+  _camera_projection = std::invoke([&]() {
+    glm::mat4 p =
+        glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
+    p[1][1] *= -1.0f;
+    return p;
+  });
+
   for (vk::UniqueSemaphore &semaphore : _rendergraph_semaphores) {
     semaphore = _core->create_semaphore();
   }
 
   _transform_hierarchy = glm_transform_hierarchy(256);
+  _ui_hierarchy = ui_hierarchy_t(&_transform_hierarchy.value());
 
-  {
-    static_object_t chest;
-    glm::mat4 model_matrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.04f));
-    chest.transform_id = _transform_hierarchy->add(model_matrix).value();
+  glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+  glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.02f));
+  _static_objects.push_back(create_chest(model_matrix));
 
-    chest.vertices = &_static_resources->chest_model()
-                          ->root()
-                          .children[0]
-                          .meshes[0]
-                          .vertices.value();
+  translation = glm::translate(glm::mat4(1.0f), glm::vec3(2.5f, 0.0f, 0.0f));
+  model_matrix = glm::scale(translation, glm::vec3(0.02f));
+  _static_objects.push_back(create_chest(model_matrix));
 
-    chest.vertices_length = _static_resources->chest_model()
-                                ->root()
-                                .children[0]
-                                .meshes[0]
-                                .vertices_length;
-
-    chest.indices = &_static_resources->chest_model()
-                         ->root()
-                         .children[0]
-                         .meshes[0]
-                         .indices.value();
-
-    chest.indices_length = _static_resources->chest_model()
-                               ->root()
-                               .children[0]
-                               .meshes[0]
-                               .indices_length;
-
-    _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
-      draw_info_t draw_info;
-
-      alex::direct_memory_buffer_info_t direct_uniform_info;
-      direct_uniform_info.physical_device = _core->physical_device();
-      direct_uniform_info.device = _core->device();
-      direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-      direct_uniform_info.memory_size = sizeof(draw_info);
-
-      for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
-        chest.direct_uniforms.emplace_back(direct_uniform_info);
-        std::memcpy(chest.direct_uniforms.back().memory_ptr(), &draw_info,
-                    sizeof(draw_info));
-      }
-
-      for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
-        alex::memory_buffer_info_t uniform_info;
-        uniform_info.physical_device = _core->physical_device();
-        uniform_info.device = _core->device();
-        uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
-        uniform_info.memory_size = direct_uniform_info.memory_size;
-        chest.uniforms.emplace_back(uniform_info);
-
-        alex::memory_buffer_write_info_t write_info;
-        write_info.physical_device = _core->physical_device();
-        write_info.device = _core->device();
-        write_info.direct = &chest.direct_uniforms[i];
-        write_info.write_size = chest.uniforms.back().memory_size();
-        write_info.commandbuffer = commandbuffer;
-        chest.uniforms.back().record_write(write_info);
-      }
-
-      auto allocated_frame_uniform_descriptorsets =
-          _core->allocate_repeated_descriptorsets(
-              _geometry_rendering->setlayout.frame_uniform.get(),
-              vk::DescriptorType::eUniformBuffer, 2);
-
-      chest.uniform_descriptor_pool =
-          std::move(allocated_frame_uniform_descriptorsets.pool);
-      chest.uniform_descriptorsets =
-          std::move(allocated_frame_uniform_descriptorsets.sets);
-
-      for (auto [i, uniform] : chest.uniforms | std::views::enumerate) {
-        const auto buffer_info = vk::DescriptorBufferInfo{}
-                                     .setBuffer(uniform.buffer())
-                                     .setOffset(0)
-                                     .setRange(uniform.memory_size());
-
-        const std::array<vk::WriteDescriptorSet, 1> writes{
-            vk::WriteDescriptorSet{}
-                .setDstBinding(0)
-                .setDstArrayElement(0)
-                .setDstSet(chest.uniform_descriptorsets[i].get())
-                .setDescriptorCount(1)
-                .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-                .setBufferInfo(buffer_info)};
-
-        _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
-                                             nullptr);
-      }
-
-      auto allocated_diffuse_descriptorsets =
-          _core->allocate_repeated_descriptorsets(
-              _geometry_rendering->setlayout.diffuse.get(),
-              vk::DescriptorType::eCombinedImageSampler, 2);
-
-      chest.diffuse_descriptor_pool =
-          std::move(allocated_diffuse_descriptorsets.pool);
-      chest.diffuse_descriptorsets =
-          std::move(allocated_diffuse_descriptorsets.sets);
-
-      for (vk::UniqueDescriptorSet &diffuse_set :
-           chest.diffuse_descriptorsets) {
-        const auto image_info =
-            vk::DescriptorImageInfo{}
-                .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-                .setSampler(_static_resources->chest_texture_sampler())
-                .setImageView(_static_resources->chest_texture()->view());
-
-        const std::array<vk::WriteDescriptorSet, 1> writes{
-            vk::WriteDescriptorSet{}
-                .setDstBinding(0)
-                .setDstArrayElement(0)
-                .setDstSet(diffuse_set.get())
-                .setDescriptorCount(1)
-                .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-                .setImageInfo(image_info)};
-
-        _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
-                                             nullptr);
-      }
-    });
-
-    _static_objects.push_back(std::move(chest));
-  }
+  translation = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, 0.0f));
+  model_matrix = glm::scale(translation, glm::vec3(0.02f));
+  _static_objects.push_back(create_chest(model_matrix));
 }
 
 constexpr imgui_scene::~imgui_scene() {}
@@ -276,7 +310,20 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
 
   graph.add_task(upload_task_id,
                  std::make_unique<alex::simple_task_t>(
-                     "upload", [&](vk::CommandBuffer /*commandbuffer*/) {}));
+                     "upload", [&](vk::CommandBuffer commandbuffer) {
+                       for (static_object_t &model : _static_objects) {
+                         static_object_update_info_t update_info;
+                         update_info.physical_device = _core->physical_device();
+                         update_info.device = _core->device();
+                         update_info.commandbuffer = commandbuffer;
+                         update_info.flightframe = next_frame_info.flightframe;
+                         update_info.transform_hierarchy =
+                             &_transform_hierarchy.value();
+                         update_info.camera_view = _camera.view();
+                         update_info.camera_projection = _camera_projection;
+                         model.update(update_info);
+                       }
+                     }));
 
   graph.add_task(
       blit_geometry_to_debugui_task_id,
@@ -430,8 +477,14 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
         commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                    _geometry_rendering->pipeline->pipeline());
 
-        // TODO: render here
-
+        for (static_object_t &model : _static_objects) {
+          static_object_draw_info_t info;
+          info.commandbuffer = commandbuffer;
+          info.flightframe = next_frame_info.flightframe;
+          info.geometry_pipeline_layout =
+              _geometry_rendering->pipeline->layout();
+          model.draw(info);
+        }
         commandbuffer.endRenderPass();
       }));
 
@@ -474,9 +527,8 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
             commandbuffer.setViewport(0, viewport);
             commandbuffer.setScissor(0, scissor);
 
-            ImGui::Begin("Hello, world!");
-            ImGui::Text("This is some useful text.");
-            ImGui::End();
+            _ui_hierarchy.draw(_static_objects);
+
             ImGui::Render();
             ImDrawData *draw_data = ImGui::GetDrawData();
             _imgui_context->render_draw_data(draw_data, commandbuffer);
