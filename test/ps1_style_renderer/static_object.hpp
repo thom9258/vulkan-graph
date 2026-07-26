@@ -36,6 +36,8 @@ struct static_object_draw_info_t {
 };
 
 struct static_object_t {
+  std::string name{"<unnamed-object>"};
+
   alex::memory_buffer_t *vertices{nullptr};
   std::uint32_t vertices_length{0};
   alex::memory_buffer_t *indices{nullptr};

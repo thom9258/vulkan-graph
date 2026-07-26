@@ -58,7 +58,7 @@ public:
   constexpr virtual auto name() const -> std::string_view {
     return "<unnamed-task>";
   }
-  constexpr virtual auto evaluate(vk::CommandBuffer commandbuffer) -> void {}
+  constexpr virtual auto evaluate(vk::CommandBuffer) -> void {}
 
   constexpr virtual ~task_t() = default;
 };

@@ -8,5 +8,8 @@
 #include <glm/gtc/quaternion.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
+#define GLM_GTX_matrix_decompose
+#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/string_cast.hpp>
+

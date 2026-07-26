@@ -12,9 +12,10 @@
 #include "imgui.h"
 #include "imgui_context.hpp"
 #include "rendering.hpp"
+#include "scene_ui.hpp"
 #include "static_object.hpp"
 #include "static_resources.hpp"
-#include "ui_hierarchy.hpp"
+#include "utility/transform_hierarchy.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
 #include <vulkan/vulkan_to_string.hpp>
@@ -45,7 +46,9 @@ public:
   constexpr auto update_input() -> scene::status_t;
   constexpr auto update_render() -> scene::status_t;
 
-  constexpr auto create_chest(glm::mat4 model_matrix) -> static_object_t;
+  constexpr auto create_chest(std::string_view name,
+                              transform_hierarchy::transform_id_t transform_id)
+      -> static_object_t;
 
 private:
   alex::core_t *_core{nullptr};
@@ -61,15 +64,19 @@ private:
 
   std::vector<static_object_t> _static_objects;
   std::optional<glm_transform_hierarchy> _transform_hierarchy;
-  game::ui_hierarchy_t _ui_hierarchy;
+  game::scene_ui_t _scene_ui;
 
   OrbitCamera _camera;
   glm::mat4 _camera_projection;
 };
 
-constexpr auto imgui_scene::create_chest(glm::mat4 model_matrix) -> static_object_t {
+constexpr auto
+imgui_scene::create_chest(std::string_view name,
+                          transform_hierarchy::transform_id_t transform_id)
+    -> static_object_t {
   static_object_t chest;
-  chest.transform_id = _transform_hierarchy->add(model_matrix).value();
+  chest.name = name;
+  chest.transform_id = transform_id;
 
   chest.vertices = &_static_resources->chest_model()
                         ->root()
@@ -197,7 +204,7 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
       _imgui_context{info.imgui_context},
       _static_resources{info.static_resources} {
 
-  float const camera_radius = 10.0f;
+  float const camera_radius = 15.0f;
   glm::vec3 const target(0.0f, 0.5f, 0.0f);
   _camera = OrbitCamera(target, camera_radius);
 
@@ -215,19 +222,33 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
   }
 
   _transform_hierarchy = glm_transform_hierarchy(256);
-  _ui_hierarchy = ui_hierarchy_t(&_transform_hierarchy.value());
+  _scene_ui = scene_ui_t(&_transform_hierarchy.value());
 
-  glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+  glm::mat4 translation =
+      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
   glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.02f));
-  _static_objects.push_back(create_chest(model_matrix));
+  auto id = _transform_hierarchy->add(model_matrix);
+  _static_objects.push_back(create_chest("chest 0", id.value()));
 
   translation = glm::translate(glm::mat4(1.0f), glm::vec3(2.5f, 0.0f, 0.0f));
   model_matrix = glm::scale(translation, glm::vec3(0.02f));
-  _static_objects.push_back(create_chest(model_matrix));
+  id = _transform_hierarchy->add(model_matrix);
+  _static_objects.push_back(create_chest("chest 1", id.value()));
+#if 1
+  translation = glm::translate(glm::mat4(1.0f), glm::vec3(2.5f, 0.0f, 2.5f));
+  model_matrix = translation;
 
-  translation = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, 0.0f));
+  id = _transform_hierarchy->add_child_local_location(
+      model_matrix, _static_objects.back().transform_id);
+  _static_objects.push_back(create_chest("chest 2", id.value()));
+#else
+  translation = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, -2.5f));
   model_matrix = glm::scale(translation, glm::vec3(0.02f));
-  _static_objects.push_back(create_chest(model_matrix));
+
+  id = _transform_hierarchy->add_child_global_location(
+      model_matrix, _static_objects.back().transform_id);
+  _static_objects.push_back(create_chest("chest 2", id.value()));
+#endif
 }
 
 constexpr imgui_scene::~imgui_scene() {}
@@ -527,7 +548,7 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
             commandbuffer.setViewport(0, viewport);
             commandbuffer.setScissor(0, scissor);
 
-            _ui_hierarchy.draw(_static_objects);
+            _scene_ui.draw(_static_objects);
 
             ImGui::Render();
             ImDrawData *draw_data = ImGui::GetDrawData();

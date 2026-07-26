@@ -50,7 +50,9 @@ static constexpr const transform_id_t
                          transform_id_t::invalid_generation_v);
 
 template <class t_location,
-          t_location (*calculate_global_location_fn)(t_location, t_location)>
+          t_location (*calculate_global_location_fn)(t_location parent_global,
+                                                     t_location child_local),
+          t_location (*calculate_inverse_location_fn)(t_location location)>
 class transform_hierarchy_t {
 public:
   using location_t = std::remove_cvref_t<t_location>;
@@ -79,13 +81,16 @@ public:
   [[nodiscard]] constexpr auto add_child_global_location(location_t location,
                                                          transform_id_t parent)
       -> std::optional<transform_id_t> {
-    transform_t *found_parent = find(parent);
-    if (found_parent == nullptr) {
+
+    auto parent_global = global_location(parent);
+    if (!parent_global.has_value()) {
       return std::nullopt;
     }
 
-    location_t global_location = location - found_parent->global_location;
-    return add_child_local_location(global_location, parent);
+    location_t child_local = calculate_global_location_fn(
+        calculate_inverse_location_fn(*parent_global), location);
+
+    return add_child_local_location(child_local, parent);
   }
 
   [[nodiscard]] constexpr auto add_child_local_location(location_t location,
