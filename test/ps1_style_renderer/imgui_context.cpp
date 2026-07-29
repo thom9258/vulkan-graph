@@ -20,6 +20,7 @@ auto imgui_context_t::new_frame() -> void {
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplSDL2_NewFrame();
   ImGui::NewFrame();
+  ImGuizmo::BeginFrame();
 }
 
 auto imgui_context_t::process_event(const SDL_Event *e) -> bool {
@@ -41,6 +42,7 @@ imgui_context_t::imgui_context_t(imgui_context_info_t &info) {
       ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
   ImGui::StyleColorsDark();
 
+  //TODO: this is a bug if we play on something other than display 0, somehow get display index and pass here.
   float main_scale =
       ImGui_ImplSDL2_GetContentScaleForDisplay(0) * info.ui_scale;
   ImGuiStyle &style = ImGui::GetStyle();

@@ -23,24 +23,52 @@ FetchContent_Declare(SimpleGeometry
 )
 FetchContent_MakeAvailable(SimpleGeometry)
 
-include(FetchContent)
 FetchContent_Declare(imgui_external
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
   GIT_TAG v1.92.8-docking
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
 )
+
 FetchContent_MakeAvailable(imgui_external)
 
 add_library(imgui
-	${imgui_external_SOURCE_DIR}/imgui.cpp
-	${imgui_external_SOURCE_DIR}/imgui_draw.cpp
-	${imgui_external_SOURCE_DIR}/imgui_tables.cpp
-	${imgui_external_SOURCE_DIR}/imgui_widgets.cpp
-	${imgui_external_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
-	${imgui_external_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+  ${imgui_external_SOURCE_DIR}/imgui.cpp
+  ${imgui_external_SOURCE_DIR}/imgui_draw.cpp
+  ${imgui_external_SOURCE_DIR}/imgui_tables.cpp
+  ${imgui_external_SOURCE_DIR}/imgui_widgets.cpp
+  ${imgui_external_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+  ${imgui_external_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
-target_include_directories(imgui PUBLIC ${imgui_external_SOURCE_DIR} ${SDL2_INCLUDE_DIRS})
+
+target_include_directories(imgui
+PUBLIC
+   ${imgui_external_SOURCE_DIR}
+   ${SDL2_INCLUDE_DIRS}
+)
+
+FetchContent_Declare(imguizmo_external
+  GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+  GIT_TAG 5ab7676
+  #GIT_TAG master
+  #GIT_TAG 1.83
+  GIT_SHALLOW TRUE
+  GIT_PROGRESS TRUE
+)
+
+# Populate means pull but dont use the official CMakeLists.txt in ImGuizmo
+FetchContent_Populate(imguizmo_external)
+
+add_library(imguizmo
+  ${imguizmo_external_SOURCE_DIR}/src/ImGuizmo.cpp
+)
+
+target_include_directories(imguizmo
+PUBLIC
+   ${imguizmo_external_SOURCE_DIR} 
+)
+
+target_link_libraries(imguizmo PUBLIC imgui) 
 
 set(PROGRAM_SOURCES
   ../../alex/log.cpp
@@ -68,10 +96,11 @@ set(PROGRAM_SOURCES
 add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)
 
 target_include_directories(${PROJECT_NAME}
-  PRIVATE 
+PRIVATE 
+    ${imgui_external_SOURCE_DIR}
+    ${imguizmo_external_SOURCE_DIR}/src
     ${Vulkan_INCLUDE_DIR}
     ${SDL2_INCLUDE_DIRS}
-    ${imgui_external_INCLUDE_DIRS}
 	../../
 	../
 )
@@ -83,6 +112,7 @@ target_link_libraries(${PROJECT_NAME}
   SimpleGeometry
   glm::glm
   imgui
+  imguizmo
   assimp::assimp
   cereal::cereal
 )

@@ -13,7 +13,7 @@ pipeline_info_t &pipeline_info_t::set_extent(vk::Extent3D extent) {
 }
 
 pipeline_info_t &pipeline_info_t::set_polygon_mode(vk::PolygonMode mode) {
-  this->polygon_mode = polygon_mode;
+  this->polygon_mode = mode;
   return *this;
 }
 

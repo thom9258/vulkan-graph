@@ -205,7 +205,7 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
       _static_resources{info.static_resources} {
 
   float const camera_radius = 15.0f;
-  glm::vec3 const target(0.0f, 0.5f, 0.0f);
+  glm::vec3 const target(0.0f, 0.0f, 0.0f);
   _camera = OrbitCamera(target, camera_radius);
 
   const float aspect = _window->window_extent().aspect();
@@ -548,7 +548,7 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
             commandbuffer.setViewport(0, viewport);
             commandbuffer.setScissor(0, scissor);
 
-            _scene_ui.draw(_static_objects);
+            _scene_ui.draw(_static_objects, _camera.view(), _camera_projection);
 
             ImGui::Render();
             ImDrawData *draw_data = ImGui::GetDrawData();

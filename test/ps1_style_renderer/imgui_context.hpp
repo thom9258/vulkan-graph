@@ -4,6 +4,7 @@
 #include <alex/presentation_context.hpp>
 
 #include <imgui.h>
+#include <ImGuizmo.h>
 #include <vulkan/vulkan_to_string.hpp>
 
 #include "../utility/sdl.hpp"
