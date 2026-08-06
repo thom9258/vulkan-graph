@@ -105,6 +105,7 @@ int main() {
 
   game::imgui_context_info_t imgui_context_info;
   imgui_context_info.context = &context;
+  imgui_context_info.ui_scale = 0.75f;
   imgui_context_info.core = &core;
   imgui_context_info.presenter = &presenter;
   imgui_context_info.window = &window;

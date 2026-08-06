@@ -91,6 +91,7 @@ set(PROGRAM_SOURCES
   static_resources.cpp
   resource_loader.cpp
   bitmap.cpp
+  glm_transform_hierarchy.cpp
 )
 
 add_executable(${PROJECT_NAME} ${PROGRAM_SOURCES} main.cpp)

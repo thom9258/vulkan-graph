@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 
-#include <format>
 #include <algorithm>
+#include <format>
+#include <concepts>
 
 #include "../utility/transform_hierarchy.hpp"
 
@@ -24,10 +25,19 @@ constexpr auto operator-(const pos2d &left, const pos2d &right) noexcept
   return pos2d{left.x - right.x, left.y - right.y};
 }
 
-constexpr auto calculate_global_location_from_parent(pos2d child_local,
-                                                     pos2d parent_global)
+constexpr auto operator*(const pos2d &left, auto scalar) noexcept
     -> pos2d {
-  return child_local + parent_global;
+  return pos2d{left.x * scalar, left.y * scalar};
+}
+
+constexpr auto pos2d_child_global_from_local(pos2d parent_global,
+                                             pos2d child_local) -> pos2d {
+  return (parent_global * -1) + child_local;
+}
+
+constexpr auto pos2d_child_local_from_global(pos2d parent_global,
+                                             pos2d child_global) -> pos2d {
+  return child_global + parent_global;
 }
 
 template <> struct std::formatter<pos2d> {
@@ -46,7 +56,7 @@ public:
 };
 
 using transform_hierarchy_pos2d_t = transform_hierarchy::transform_hierarchy_t<
-    pos2d, calculate_global_location_from_parent>;
+    pos2d, pos2d_child_global_from_local, pos2d_child_local_from_global>;
 
 TEST(transform_id, construction_destruction) {
   transform_hierarchy_pos2d_t hierarchy(32);

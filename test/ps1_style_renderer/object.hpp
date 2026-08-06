@@ -1,17 +1,6 @@
 #pragma once
 
-#include "utility/transform_hierarchy.hpp"
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_FORCE_RADIANS
-#include <glm/ext.hpp>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
-
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtx/string_cast.hpp>
-
+#include "include_glm.hpp"
 #include "glm_transform_hierarchy.hpp"
 #include "rendering.hpp"
 
@@ -29,13 +18,13 @@ struct static_object_update_info_t {
   glm_transform_hierarchy *transform_hierarchy{nullptr};
 };
 
-struct static_object_draw_info_t {
+struct object_draw_info_t {
   vk::CommandBuffer commandbuffer;
   vk::PipelineLayout geometry_pipeline_layout;
   std::uint32_t flightframe;
 };
 
-struct static_object_t {
+struct object_t {
   std::string name{"<unnamed-object>"};
 
   alex::memory_buffer_t *vertices{nullptr};
@@ -56,11 +45,10 @@ struct static_object_t {
       transform_hierarchy::invalid_transform_id};
 
   constexpr auto update(static_object_update_info_t &info) -> void;
-  constexpr auto draw(static_object_draw_info_t &info) -> void;
+  constexpr auto draw(object_draw_info_t &info) -> void;
 };
 
-constexpr auto static_object_t::update(static_object_update_info_t &info)
-    -> void {
+constexpr auto object_t::update(static_object_update_info_t &info) -> void {
   auto model_matrix = info.transform_hierarchy->global_location(transform_id);
 
   draw_info_t draw_info;
@@ -79,7 +67,7 @@ constexpr auto static_object_t::update(static_object_update_info_t &info)
   uniforms[info.flightframe].record_write(write_info);
 }
 
-constexpr auto static_object_t::draw(static_object_draw_info_t &info) -> void {
+constexpr auto object_t::draw(object_draw_info_t &info) -> void {
 
   vk::DescriptorSet uniform = uniform_descriptorsets[info.flightframe].get();
   info.commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,

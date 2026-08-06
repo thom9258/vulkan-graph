@@ -49,10 +49,25 @@ static constexpr const transform_id_t
     invalid_transform_id(transform_id_t::invalid_index_v,
                          transform_id_t::invalid_generation_v);
 
+// child_local_from_global
+
+namespace detail {
+
+template <typename t_location>
+using child_global_from_local_t = t_location (*)(t_location parent_global,
+                                                 t_location child_local);
+
+template <typename t_location>
+using child_local_from_global_t = t_location (*)(t_location parent_global,
+                                                 t_location child_global);
+
+} // namespace detail
+
 template <class t_location,
-          t_location (*calculate_global_location_fn)(t_location parent_global,
-                                                     t_location child_local),
-          t_location (*calculate_inverse_location_fn)(t_location location)>
+          detail::child_global_from_local_t<t_location>
+              child_global_from_local_location,
+          detail::child_local_from_global_t<t_location>
+              child_local_from_global_location>
 class transform_hierarchy_t {
 public:
   using location_t = std::remove_cvref_t<t_location>;
@@ -87,8 +102,8 @@ public:
       return std::nullopt;
     }
 
-    location_t child_local = calculate_global_location_fn(
-        calculate_inverse_location_fn(*parent_global), location);
+    location_t child_local =
+        std::invoke(child_local_from_global_location, *parent_global, location);
 
     return add_child_local_location(child_local, parent);
   }
@@ -218,6 +233,35 @@ public:
     transform->dirty = true;
   }
 
+  constexpr auto set_global_location(transform_id_t &id, location_t location)
+      -> void {
+    transform_t *transform = find(id);
+    if (transform == nullptr) {
+      return;
+    }
+
+    auto parent_global = global_location(transform->parent);
+    if (!parent_global.has_value()) {
+      set_local_location(id, location);
+      return;
+    }
+
+    location_t child_local =
+        std::invoke(child_local_from_global_location, *parent_global, location);
+
+    transform->local_location = child_local;
+    transform->dirty = true;
+  }
+
+  constexpr auto parent(transform_id_t &id) -> transform_id_t {
+    transform_t *transform = find(id);
+    if (transform == nullptr) {
+      return invalid_transform_id;
+    }
+
+    return transform->parent;
+  }
+
   constexpr auto unparent(transform_id_t &id) -> void {
     transform_t *transform = find(id);
     if (transform == nullptr) {
@@ -277,8 +321,8 @@ private:
         transform_t &parent = _transforms[parent_index];
         transform_t &child = _transforms[child_index];
         child.global_location =
-            std::invoke(calculate_global_location_fn, child.local_location,
-                        parent.global_location);
+            std::invoke(child_global_from_local_location,
+                        parent.global_location, child.local_location);
 
         child.dirty = false;
         parent_index = child_index;
