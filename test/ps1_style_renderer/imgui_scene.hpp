@@ -8,15 +8,16 @@
 #include "../utility/scenestack.hpp"
 #include "../utility/sdl.hpp"
 
+#include "actor.hpp"
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
 #include "imgui_context.hpp"
 #include "object.hpp"
 #include "player.hpp"
 #include "rendering.hpp"
-#include "scene_ui.hpp"
 #include "static_resources.hpp"
 #include "ui_game_manager.hpp"
+#include "ui_level_editor.hpp"
 #include "utility/transform_hierarchy.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
@@ -30,9 +31,13 @@ class world_t {
 public:
   world_t(sdl::window_extent_t extent);
 
-  constexpr auto add_static_object(object_t object) -> void;
+  constexpr auto add_object(object_t object) -> void;
 
-  constexpr auto static_objects() -> std::span<object_t>;
+  constexpr auto objects() -> std::span<object_t>;
+
+  constexpr auto add_actor(actor_t actor) -> void;
+
+  constexpr auto actors() -> std::span<actor_t>;
 
   constexpr auto transform_hierarchy() -> glm_transform_hierarchy &;
 
@@ -41,11 +46,12 @@ public:
   constexpr auto player() -> player_t &;
 
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
-	
+
   constexpr auto update_logic(double deltatime) -> void;
 
 private:
-  std::vector<object_t> _static_objects;
+  std::vector<object_t> _objects;
+  std::vector<actor_t> _actors;
   std::optional<camera_t> _camera;
   std::optional<player_t> _player;
   std::optional<glm_transform_hierarchy> _transform_hierarchy;
@@ -55,13 +61,17 @@ constexpr auto world_t::transform_hierarchy() -> glm_transform_hierarchy & {
   return _transform_hierarchy.value();
 }
 
-constexpr auto world_t::add_static_object(object_t object) -> void {
-  _static_objects.push_back(std::move(object));
+constexpr auto world_t::add_object(object_t object) -> void {
+  _objects.push_back(std::move(object));
 }
 
-constexpr auto world_t::static_objects() -> std::span<object_t> {
-  return _static_objects;
+constexpr auto world_t::objects() -> std::span<object_t> { return _objects; }
+
+constexpr auto world_t::add_actor(actor_t actor) -> void {
+  _actors.push_back(std::move(actor));
 }
+
+constexpr auto world_t::actors() -> std::span<actor_t> { return _actors; }
 
 constexpr auto world_t::camera() -> camera_t & { return _camera.value(); }
 
@@ -140,7 +150,7 @@ private:
   alex::flightframe_array_t<alex::graph_t> _rendergraphs;
   alex::flightframe_array_t<vk::UniqueSemaphore> _rendergraph_semaphores;
   std::optional<world_t> _world;
-  game::scene_ui_t _scene_ui;
+  game::ui_level_editor_t _ui_level_editor;
   game::ui_game_manager_t _ui_game_manager;
 };
 
@@ -284,25 +294,25 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
 
   _world.emplace(_window->window_extent());
 
-  _scene_ui = scene_ui_t(&_world->transform_hierarchy());
+  _ui_level_editor = ui_level_editor_t(&_world->transform_hierarchy());
 
   glm::mat4 translation =
       glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
   glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.02f));
   auto id = _world->transform_hierarchy().add(model_matrix);
 
-  _world->add_static_object(create_chest("chest 0", id.value()));
+  _world->add_object(create_chest("chest 0", id.value()));
 
   translation = glm::translate(glm::mat4(1.0f), glm::vec3(2.5f, 0.0f, 0.0f));
   model_matrix = glm::scale(translation, glm::vec3(0.02f));
   id = _world->transform_hierarchy().add(model_matrix);
-  _world->add_static_object(create_chest("chest 1", id.value()));
+  _world->add_object(create_chest("chest 1", id.value()));
 
   translation = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, -2.5f));
   model_matrix = glm::scale(translation, glm::vec3(0.02f));
   id = _world->transform_hierarchy().add_child_global_location(
-      model_matrix, _world->static_objects().back().transform_id);
-  _world->add_static_object(create_chest("chest 2", id.value()));
+      model_matrix, _world->objects().back().transform_id);
+  _world->add_object(create_chest("chest 2", id.value()));
 }
 
 constexpr imgui_scene::~imgui_scene() {}
@@ -357,13 +367,12 @@ constexpr auto imgui_scene::update_input() -> scene::status_t {
     return scene::status_t::shutdown;
   }
 
-  _scene_ui.update_input(events);
+  _ui_level_editor.update_input(events);
 
   _world->update_input(events);
 
   return scene::status_t::ok;
 }
-
 
 constexpr auto imgui_scene::update_logic() -> scene::status_t {
   double const deltatime = _window->deltatime_seconds();
@@ -402,7 +411,7 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
   graph.add_task(upload_task_id,
                  std::make_unique<alex::simple_task_t>(
                      "upload", [&](vk::CommandBuffer commandbuffer) {
-                       for (object_t &model : _world->static_objects()) {
+                       for (object_t &model : _world->objects()) {
                          static_object_update_info_t update_info;
                          update_info.physical_device = _core->physical_device();
                          update_info.device = _core->device();
@@ -569,7 +578,7 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
         commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                    _geometry_rendering->pipeline->pipeline());
 
-        for (object_t &model : _world->static_objects()) {
+        for (object_t &model : _world->objects()) {
           object_draw_info_t info;
           info.commandbuffer = commandbuffer;
           info.flightframe = next_frame_info.flightframe;
@@ -621,9 +630,10 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
 
             _ui_game_manager.draw();
 
-            if (_ui_game_manager.should_draw_level_editor()) {
-              _scene_ui.draw(_world->static_objects(), _world->camera().view(),
-                             _world->camera().projection());
+            if (_ui_game_manager.show_level_editor()) {
+              _ui_level_editor.draw(_world->objects(), _world->actors(),
+                                    _world->camera().view(),
+                                    _world->camera().projection());
             }
 
             ImGui::Render();

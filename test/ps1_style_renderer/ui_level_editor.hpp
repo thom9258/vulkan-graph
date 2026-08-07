@@ -4,6 +4,7 @@
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
 #include "object.hpp"
+#include "actor.hpp"
 #include "ps1_style_renderer/include_glm.hpp"
 
 #include "imgui_context.hpp"
@@ -15,33 +16,31 @@
 #include <algorithm> // for std::swap
 #include <print>
 #include <span>
+#include <string_view>
 
 namespace game {
 
-class scene_ui_t {
+class ui_level_editor_t {
 public:
   using transform_id_t = transform_hierarchy::transform_id_t;
 
-  constexpr scene_ui_t() = default;
+  constexpr ui_level_editor_t() = default;
 
-  constexpr explicit scene_ui_t(glm_transform_hierarchy *transform_hierarchy);
+  constexpr explicit ui_level_editor_t(
+      glm_transform_hierarchy *transform_hierarchy);
 
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
 
   constexpr auto draw_node(std::size_t &id_index, std::span<object_t> objects,
                            transform_id_t id) -> void;
 
-  constexpr auto draw_begin() -> void;
-
-  constexpr auto draw_end() -> void;
-
   constexpr auto draw_edit_mode() -> void;
 
-  constexpr auto draw_hierarchy(std::span<object_t> objects) -> void;
+  constexpr auto draw_hierarchy(std::span<object_t> objects, std::span<actor_t> actors) -> void;
 
   constexpr auto draw_selected(glm::mat4 view, glm::mat4 projection) -> void;
 
-  constexpr auto draw(std::span<object_t> objects, glm::mat4 view,
+  constexpr auto draw(std::span<object_t> objects, std::span<actor_t> actors, glm::mat4 view,
                       glm::mat4 projection) -> void;
 
   constexpr auto find(std::span<object_t> objects, transform_id_t id)
@@ -49,6 +48,9 @@ public:
 
 private:
   glm_transform_hierarchy *_transform_hierarchy{nullptr};
+  bool _show_object_hierarchy{false};
+  bool _show_actor_hierarchy{false};
+
   object_t *_selected{nullptr};
   int _selected_operation{0};
   int _selected_locale{0};
@@ -102,20 +104,22 @@ constexpr auto mode_to_index(ImGuizmo::MODE mode) -> int {
   return 0;
 }
 
-constexpr scene_ui_t::scene_ui_t(glm_transform_hierarchy *transform_hierarchy)
+constexpr ui_level_editor_t::ui_level_editor_t(
+    glm_transform_hierarchy *transform_hierarchy)
     : _transform_hierarchy{transform_hierarchy} {}
 
-constexpr auto scene_ui_t::update_input(std::span<SDL_Event> events) -> void {
-  //auto shift_pressed = false;
+constexpr auto ui_level_editor_t::update_input(std::span<SDL_Event> events)
+    -> void {
+  // auto shift_pressed = false;
   for (SDL_Event event : events) {
     switch (event.type) {
-   //case SDL_PRESSED:
-   //  switch (event.key.keysym.sym) {
-   //  case SDLK_LSHIFT:
-   //    shift_pressed = true;
-   //    break;
-   //  }
-   //  break;
+      // case SDL_PRESSED:
+      //   switch (event.key.keysym.sym) {
+      //   case SDLK_LSHIFT:
+      //     shift_pressed = true;
+      //     break;
+      //   }
+      //   break;
 
     case SDL_KEYDOWN:
       switch (event.key.keysym.sym) {
@@ -124,18 +128,18 @@ constexpr auto scene_ui_t::update_input(std::span<SDL_Event> events) -> void {
         break;
       }
       case SDLK_1: {
-        //if (shift_pressed) {
-          _selected_operation = operation_to_index(ImGuizmo::TRANSLATE);
+        // if (shift_pressed) {
+        _selected_operation = operation_to_index(ImGuizmo::TRANSLATE);
         //}
       } break;
       case SDLK_2: {
-        //if (shift_pressed) {
-          _selected_operation = operation_to_index(ImGuizmo::ROTATE);
+        // if (shift_pressed) {
+        _selected_operation = operation_to_index(ImGuizmo::ROTATE);
         //}
       } break;
       case SDLK_3: {
-        //if (shift_pressed) {
-          _selected_operation = operation_to_index(ImGuizmo::SCALE);
+        // if (shift_pressed) {
+        _selected_operation = operation_to_index(ImGuizmo::SCALE);
         //}
       } break;
       }
@@ -143,8 +147,8 @@ constexpr auto scene_ui_t::update_input(std::span<SDL_Event> events) -> void {
   }
 }
 
-constexpr auto scene_ui_t::find(std::span<object_t> objects, transform_id_t id)
-    -> object_t * {
+constexpr auto ui_level_editor_t::find(std::span<object_t> objects,
+                                       transform_id_t id) -> object_t * {
   for (object_t &object : objects) {
     if (object.transform_id == id) {
       return &object;
@@ -154,9 +158,11 @@ constexpr auto scene_ui_t::find(std::span<object_t> objects, transform_id_t id)
   return nullptr;
 }
 
-constexpr auto scene_ui_t::draw_node(std::size_t &id_index,
-                                     std::span<object_t> objects,
-                                     transform_id_t id) -> void {
+static constexpr const std::string_view object_drag_id{"DRAGGED OBJECT"};
+
+constexpr auto ui_level_editor_t::draw_node(std::size_t &id_index,
+                                            std::span<object_t> objects,
+                                            transform_id_t id) -> void {
 
   object_t *object = find(objects, id);
   if (object == nullptr) {
@@ -164,11 +170,29 @@ constexpr auto scene_ui_t::draw_node(std::size_t &id_index,
   }
 
   ImGuiTreeNodeFlags flags =
-      ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_Selected |
-      ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_SpanAvailWidth;
+      ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_Selected;
 
   ImGui::PushID(id_index);
   bool const open = ImGui::TreeNodeEx(object->name.c_str(), flags);
+
+  if (ImGui::BeginDragDropTarget()) {
+    ImGuiDragDropFlags target_flags =
+        ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
+    if (const ImGuiPayload *payload =
+            ImGui::AcceptDragDropPayload(object_drag_id.data(), target_flags)) {
+      auto dropped = reinterpret_cast<object_t *>(payload->Data);
+      _transform_hierarchy->reparent(dropped->transform_id,
+                                     object->transform_id);
+    }
+
+    ImGui::EndDragDropTarget();
+  }
+
+  if (ImGui::BeginDragDropSource()) {
+    ImGui::SetDragDropPayload(object_drag_id.data(), object, sizeof(object_t));
+    ImGui::EndDragDropSource();
+  }
+
   if (ImGui::IsItemClicked()) {
     _selected = object;
   }
@@ -186,23 +210,37 @@ constexpr auto scene_ui_t::draw_node(std::size_t &id_index,
   id_index++;
 }
 
-constexpr auto scene_ui_t::draw_begin() -> void {
-  ImGui::Begin("Level Editor");
-}
-
-constexpr auto scene_ui_t::draw_end() -> void { ImGui::End(); }
-
-constexpr auto scene_ui_t::draw_hierarchy(std::span<object_t> objects) -> void {
+constexpr auto ui_level_editor_t::draw_hierarchy(std::span<object_t> objects, std::span<actor_t> actors)
+    -> void {
   // https://kahwei.dev/2022/06/20/imgui-tree-node/
-
-  std::vector<transform_id_t> roots = _transform_hierarchy->roots();
+  // https://ruby0x1.github.io/machinery_blog_archive/post/implementing-drag-and-drop-in-an-imgui/index.html
   std::size_t id_index = 0;
-  for (transform_id_t root : roots) {
-    draw_node(id_index, objects, root);
+  std::vector<transform_id_t> roots = _transform_hierarchy->roots();
+
+  ImGui::Separator();
+  ImGui::Checkbox("Objects", &_show_object_hierarchy);
+  if (_show_object_hierarchy) {
+	//TODO: filter transforms to only contain objects
+    for (transform_id_t root : roots) {
+      draw_node(id_index, objects, root);
+    }
   }
+
+  ImGui::Separator();
+  ImGui::Checkbox("Actors", &_show_actor_hierarchy);
+  if (_show_actor_hierarchy) {
+	//TODO: filter transforms to only contain actors
+    //     std::vector<transform_id_t> roots = _transform_hierarchy->roots();
+    //     for (transform_id_t root : roots) {
+    //       draw_node(id_index, objects, root);
+    //     }
+  }
+
+  //   ImGui::Separator();
+  //   ImGui::Text("Player");
 }
 
-constexpr auto scene_ui_t::draw_edit_mode() -> void {
+constexpr auto ui_level_editor_t::draw_edit_mode() -> void {
   if (ImGui::Combo("Operation", &_selected_operation, operations,
                    IM_ARRAYSIZE(operations))) {
   }
@@ -211,8 +249,8 @@ constexpr auto scene_ui_t::draw_edit_mode() -> void {
   }
 }
 
-constexpr auto scene_ui_t::draw_selected(glm::mat4 view, glm::mat4 projection)
-    -> void {
+constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
+                                                glm::mat4 projection) -> void {
   if (_selected != nullptr) {
     if (_transform_hierarchy->is_valid(_selected->transform_id)) {
       ImGui::Text("%s", _selected->name.c_str());
@@ -257,15 +295,16 @@ constexpr auto scene_ui_t::draw_selected(glm::mat4 view, glm::mat4 projection)
   }
 }
 
-constexpr auto scene_ui_t::draw(std::span<object_t> objects, glm::mat4 view,
-                                glm::mat4 projection) -> void {
-  draw_begin();
+constexpr auto ui_level_editor_t::draw(std::span<object_t> objects, std::span<actor_t> actors,
+                                       glm::mat4 view, glm::mat4 projection)
+    -> void {
+  ImGui::Begin("Level Editor");
   draw_edit_mode();
   ImGui::Separator();
-  draw_hierarchy(objects);
+  draw_hierarchy(objects, actors);
   ImGui::Separator();
   draw_selected(view, projection);
-  draw_end();
+  ImGui::End();
 }
 
 } // namespace game

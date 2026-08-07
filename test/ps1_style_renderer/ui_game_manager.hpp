@@ -13,11 +13,11 @@ public:
   constexpr auto draw() -> void;
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
   constexpr auto should_close() const -> bool;
-  constexpr auto should_draw_level_editor() const -> bool;
+  constexpr auto show_level_editor() const -> bool;
 
 private:
   bool _should_close{false};
-  bool _should_draw_level_editor{false};
+  bool _show_level_editor{true};
 };
 
 constexpr auto ui_game_manager_t::update_input(std::span<SDL_Event>) -> void {}
@@ -25,8 +25,8 @@ constexpr auto ui_game_manager_t::update_input(std::span<SDL_Event>) -> void {}
 constexpr auto ui_game_manager_t::should_close() const -> bool {
   return _should_close;
 }
-constexpr auto ui_game_manager_t::should_draw_level_editor() const -> bool {
-  return _should_draw_level_editor;
+constexpr auto ui_game_manager_t::show_level_editor() const -> bool {
+  return _show_level_editor;
 }
 
 constexpr auto ui_game_manager_t::draw() -> void {
@@ -40,10 +40,7 @@ constexpr auto ui_game_manager_t::draw() -> void {
     _should_close = true;
   }
 
-  if (ImGui::Button("Toggle Level Editor")) {
-    _should_draw_level_editor = !_should_draw_level_editor;
-  }
-
+  ImGui::Checkbox("Level Selector", &_show_level_editor);
   ImGui::End();
 }
 

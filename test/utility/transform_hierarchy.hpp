@@ -278,10 +278,20 @@ public:
       return;
     }
 
-    if (!is_valid(parent)) {
+    std::optional<location_t> parent_global = global_location(parent);
+    if (!parent_global.has_value()) {
       return;
     }
 
+    std::optional<location_t> child_global = global_location(id);
+    if (!child_global.has_value()) {
+      return;
+    }
+
+    location_t child_local = std::invoke(child_local_from_global_location,
+                                         *parent_global, *child_global);
+
+    transform->local_location = child_local;
     transform->parent = parent;
     transform->dirty = true;
   }

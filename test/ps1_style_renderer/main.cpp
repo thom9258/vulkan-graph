@@ -7,18 +7,22 @@
 #include <alex/texture_storage.hpp>
 
 #include <alex/task_graph.hpp>
+#include <alex/log.hpp>
 
 #include "alex/flightframe_array.hpp"
 
 #include "../utility/button.hpp"
 #include "../utility/scenestack.hpp"
 #include "../utility/sdl.hpp"
+#include "../utility/timer.hpp"
 
 #include "bitmap.hpp"
 // #include "orbit_chest_scene.hpp"
 #include "imgui_scene.hpp"
 #include "ps1_style_renderer/imgui_context.hpp"
 #include "ps1_style_renderer/static_resources.hpp"
+
+
 #include <chrono>
 #include <iostream>
 #include <ranges>
@@ -34,11 +38,12 @@ using namespace std::literals;
 std::size_t constexpr mb = 1'000'000;
 
 int main() {
+  utility::timer_t engine_init_timer;
+
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
   alex::memory::arena init_arena(memory);
 
-  auto program_start_time = std::chrono::high_resolution_clock::now();
 
   sdl::window_info_t window_info{};
   window_info.name = "ps1_game";
@@ -88,6 +93,10 @@ int main() {
       core, vk::Extent3D(static_cast<std::int32_t>(window_extent.width),
                          static_cast<std::int32_t>(window_extent.height), 1));
 
+
+  ALEX_INFO("Engine load time: {}ms", engine_init_timer.elapsed_ms());
+
+
   game::static_resources_t static_resources(&core);
 
   /* ****************************************
@@ -95,14 +104,7 @@ int main() {
    */
   scene::scenestack_t scenestack;
 
-  // game::orbit_chest_scene_info_t chest_scene_info;
-  // chest_scene_info.name = "Chest scene 1";
-  // chest_scene_info.core = &core;
-  // chest_scene_info.geometry_rendering = &geometry_rendering;
-  // chest_scene_info.presenter = &presenter;
-  // chest_scene_info.window = &window;
-  // scenestack.put(std::make_unique<game::orbit_chest_scene>(chest_scene_info));
-
+  utility::timer_t imgui_scene_init_timer;
   game::imgui_context_info_t imgui_context_info;
   imgui_context_info.context = &context;
   imgui_context_info.ui_scale = 0.75f;
@@ -124,13 +126,7 @@ int main() {
 
   scenestack.put(std::make_unique<game::imgui_scene>(imgui_scene_info));
 
-  {
-    auto now = std::chrono::high_resolution_clock::now();
-    auto initialization_time =
-        std::chrono::duration_cast<std::chrono::duration<double>>(
-            now - program_start_time);
-    std::println("Initialization time: {}", initialization_time);
-  }
+  ALEX_INFO("Imgui Scene init time: {}ms", imgui_scene_init_timer.elapsed_ms());
 
   bool running = true;
   while (running) {

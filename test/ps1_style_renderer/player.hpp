@@ -72,27 +72,23 @@ private:
 constexpr player_t::player_t(camera_t *camera) : _camera{camera} {}
 
 constexpr auto player_t::update_logic(double deltatime) -> void {
-  auto move_direction = std::optional<glm::vec3>{};
+  auto move_direction = glm::vec3(0.0f);
   if (_button.w.is_pressed()) {
-    move_direction =
-        move_direction.value_or(glm::vec3(0.0f)) + glm::vec3(-1.0f, 0.0f, 0.0f);
+    move_direction += glm::vec3(-1.0f, 0.0f, 0.0f);
   }
   if (_button.s.is_pressed()) {
-    move_direction =
-        move_direction.value_or(glm::vec3(0.0f)) + glm::vec3(1.0f, 0.0f, 0.0f);
+    move_direction += glm::vec3(1.0f, 0.0f, 0.0f);
   }
   if (_button.a.is_pressed()) {
-    move_direction =
-        move_direction.value_or(glm::vec3(0.0f)) + glm::vec3(0.0f, 0.0f, 1.0f);
+    move_direction += glm::vec3(0.0f, 0.0f, 1.0f);
   }
   if (_button.d.is_pressed()) {
-    move_direction =
-        move_direction.value_or(glm::vec3(0.0f)) + glm::vec3(0.0f, 0.0f, -1.0f);
+    move_direction += glm::vec3(0.0f, 0.0f, -1.0f);
   }
 
-  if (move_direction.has_value()) {
-    const auto translation =
-        glm::normalize(*move_direction) * move_speed * static_cast<float>(deltatime);
+  if (move_direction != glm::vec3(0.0f)) {
+    const auto translation = glm::normalize(move_direction) * move_speed *
+                             static_cast<float>(deltatime);
     _camera->translate_global(translation);
   }
 }

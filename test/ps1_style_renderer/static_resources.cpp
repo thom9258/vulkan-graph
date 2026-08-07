@@ -1,4 +1,7 @@
+
 #include "static_resources.hpp"
+#include "../utility/timer.hpp"
+#include "alex/log.hpp"
 #include "alex/texture.hpp"
 
 #include <exception>
@@ -14,12 +17,15 @@ auto static_resources_t::chest_texture() -> alex::texture_t * {
 }
 
 auto static_resources_t::load_chest_texture() -> void {
+  utility::timer_t load_time;
   if (_chest.diffuse_texture.has_value()) {
     return;
   }
 
-  auto chest_diffuse_bitmap = game::bitmap_t::create(
-      "/home/th/Assets/ChestWowStyle/diffuse.tga", game::bitmap_format_t::rgb);
+  std::filesystem::path path = "/home/th/Assets/ChestWowStyle/diffuse.tga";
+
+  auto chest_diffuse_bitmap =
+      game::bitmap_t::create(path, game::bitmap_format_t::rgb);
 
   if (!chest_diffuse_bitmap.has_value()) {
     throw std::runtime_error("Could not load chest diffuse bitmap");
@@ -121,9 +127,13 @@ auto static_resources_t::load_chest_texture() -> void {
                                     barrier);
     }
   });
+
+  ALEX_INFO("Loaded texture '{}' in {}ms", path.string(),
+            load_time.elapsed_ms());
 }
 
 auto static_resources_t::load_chest_model() -> void {
+  utility::timer_t load_time;
   if (_chest.model.has_value()) {
     return;
   }
@@ -139,6 +149,8 @@ auto static_resources_t::load_chest_model() -> void {
   }
 
   _chest.model = std::move(chest.value());
+  ALEX_INFO("Loaded model '{}' in {}ms", chest_load_info.path.string(),
+            load_time.elapsed_ms());
 }
 
 auto static_resources_t::chest_model() -> model_source_t * {

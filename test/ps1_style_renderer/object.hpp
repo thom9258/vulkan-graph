@@ -27,6 +27,9 @@ struct object_draw_info_t {
 struct object_t {
   std::string name{"<unnamed-object>"};
 
+  transform_hierarchy::transform_id_t transform_id{
+      transform_hierarchy::invalid_transform_id};
+
   alex::memory_buffer_t *vertices{nullptr};
   std::uint32_t vertices_length{0};
   alex::memory_buffer_t *indices{nullptr};
@@ -40,9 +43,6 @@ struct object_t {
 
   vk::UniqueDescriptorPool diffuse_descriptor_pool;
   std::vector<vk::UniqueDescriptorSet> diffuse_descriptorsets;
-
-  transform_hierarchy::transform_id_t transform_id{
-      transform_hierarchy::invalid_transform_id};
 
   constexpr auto update(static_object_update_info_t &info) -> void;
   constexpr auto draw(object_draw_info_t &info) -> void;
