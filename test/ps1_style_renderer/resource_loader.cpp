@@ -259,7 +259,6 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
 
   if (diffuse_path.has_value()) {
     std::filesystem::path const path = basedir / diffuse_path.value();
-    std::println("loading diffuse bitmap from path {}", path.string());
     auto diffuse_bitmap = bitmap_t::create(path, bitmap_format_t::rgba);
     if (diffuse_bitmap.has_value()) {
       alex::texture_info_t texture_info;
@@ -269,6 +268,7 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
           vk::Extent2D{static_cast<std::uint32_t>(diffuse_bitmap->width()),
                        static_cast<std::uint32_t>(diffuse_bitmap->height())};
       texture_info.format = game::to_vk_format(diffuse_bitmap->format());
+      texture_info.tiling = vk::ImageTiling::eOptimal;
       texture_info.aspect_flags = vk::ImageAspectFlagBits::eColor;
       texture_info.usage = vk::ImageUsageFlagBits::eSampled |
                            vk::ImageUsageFlagBits::eTransferDst;

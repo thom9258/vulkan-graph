@@ -2,23 +2,25 @@
 
 #include <alex/core.hpp>
 #include <alex/flightframe_array.hpp>
+#include <alex/log.hpp>
 #include <alex/task_graph.hpp>
 
 #include "../utility/camera.hpp"
 #include "../utility/scenestack.hpp"
 #include "../utility/sdl.hpp"
 
-#include "actor.hpp"
+#include "entity.hpp"
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
 #include "imgui_context.hpp"
-#include "object.hpp"
-#include "player.hpp"
+#include "ps1_style_renderer/resource_loader.hpp"
+#include "ps1_style_renderer/static_mesh_entity.hpp"
 #include "rendering.hpp"
 #include "static_resources.hpp"
 #include "ui_game_manager.hpp"
 #include "ui_level_editor.hpp"
 #include "utility/transform_hierarchy.hpp"
+#include "world.hpp"
 
 #include <glm/ext/matrix_transform.hpp>
 #include <vulkan/vulkan_to_string.hpp>
@@ -26,83 +28,6 @@
 #include <print>
 
 namespace game {
-
-class world_t {
-public:
-  world_t(sdl::window_extent_t extent);
-
-  constexpr auto add_object(object_t object) -> void;
-
-  constexpr auto objects() -> std::span<object_t>;
-
-  constexpr auto add_actor(actor_t actor) -> void;
-
-  constexpr auto actors() -> std::span<actor_t>;
-
-  constexpr auto transform_hierarchy() -> glm_transform_hierarchy &;
-
-  constexpr auto camera() -> camera_t &;
-
-  constexpr auto player() -> player_t &;
-
-  constexpr auto update_input(std::span<SDL_Event> events) -> void;
-
-  constexpr auto update_logic(double deltatime) -> void;
-
-private:
-  std::vector<object_t> _objects;
-  std::vector<actor_t> _actors;
-  std::optional<camera_t> _camera;
-  std::optional<player_t> _player;
-  std::optional<glm_transform_hierarchy> _transform_hierarchy;
-};
-
-constexpr auto world_t::transform_hierarchy() -> glm_transform_hierarchy & {
-  return _transform_hierarchy.value();
-}
-
-constexpr auto world_t::add_object(object_t object) -> void {
-  _objects.push_back(std::move(object));
-}
-
-constexpr auto world_t::objects() -> std::span<object_t> { return _objects; }
-
-constexpr auto world_t::add_actor(actor_t actor) -> void {
-  _actors.push_back(std::move(actor));
-}
-
-constexpr auto world_t::actors() -> std::span<actor_t> { return _actors; }
-
-constexpr auto world_t::camera() -> camera_t & { return _camera.value(); }
-
-constexpr auto world_t::player() -> player_t & { return _player.value(); }
-
-constexpr auto world_t::update_input(std::span<SDL_Event> events) -> void {
-  _player->update_input(events);
-}
-
-constexpr auto world_t::update_logic(double deltatime) -> void {
-  _player->update_logic(deltatime);
-}
-
-world_t::world_t(sdl::window_extent_t extent) {
-  const float aspect = extent.aspect();
-  const float near_plane = 0.1f, far_plane = 200.0f;
-  glm::mat4 const projection = std::invoke([&]() {
-    glm::mat4 p =
-        glm::perspective(glm::radians(70.f), aspect, near_plane, far_plane);
-    p[1][1] *= -1.0f;
-    return p;
-  });
-
-  glm::vec3 const position(10.0f, 5.0f, 0.0f);
-  glm::vec3 const target(0.0f, 0.0f, 0.0f);
-  glm::vec3 const up(0.0f, 1.0f, 0.0f);
-
-  _camera.emplace(projection, position, target, up);
-  _player.emplace(&_camera.value());
-  _transform_hierarchy = glm_transform_hierarchy(256);
-}
 
 struct imgui_scene_info_t {
   alex::core_t *core{nullptr};
@@ -136,7 +61,7 @@ public:
 
   constexpr auto create_chest(std::string_view name,
                               transform_hierarchy::transform_id_t transform_id)
-      -> object_t;
+      -> static_mesh_entity_t;
 
 private:
   alex::core_t *_core{nullptr};
@@ -152,39 +77,45 @@ private:
   std::optional<world_t> _world;
   game::ui_level_editor_t _ui_level_editor;
   game::ui_game_manager_t _ui_game_manager;
+
+  std::optional<model_source_t> _fox;
 };
 
 constexpr auto
 imgui_scene::create_chest(std::string_view name,
                           transform_hierarchy::transform_id_t transform_id)
-    -> object_t {
-  object_t chest;
-  chest.name = name;
-  chest.transform_id = transform_id;
+    -> static_mesh_entity_t {
+  static_mesh_entity_t chest(name, transform_id);
 
-  chest.vertices = &_static_resources->chest_model()
-                        ->root()
-                        .children[0]
-                        .meshes[0]
-                        .vertices.value();
+  // TODO: this is not a good way to do things
+  chest._static_model_ref.emplace();
+  chest._static_model_ref->meshes.emplace_back();
+  detail::static_mesh_ref_t &static_mesh =
+      chest._static_model_ref->meshes.back();
 
-  chest.vertices_length = _static_resources->chest_model()
+  static_mesh.vertices = &_static_resources->chest_model()
                               ->root()
                               .children[0]
                               .meshes[0]
-                              .vertices_length;
+                              .vertices.value();
 
-  chest.indices = &_static_resources->chest_model()
-                       ->root()
-                       .children[0]
-                       .meshes[0]
-                       .indices.value();
+  static_mesh.vertices_length = _static_resources->chest_model()
+                                    ->root()
+                                    .children[0]
+                                    .meshes[0]
+                                    .vertices_length;
 
-  chest.indices_length = _static_resources->chest_model()
+  static_mesh.indices = &_static_resources->chest_model()
                              ->root()
                              .children[0]
                              .meshes[0]
-                             .indices_length;
+                             .indices.value();
+
+  static_mesh.indices_length = _static_resources->chest_model()
+                                   ->root()
+                                   .children[0]
+                                   .meshes[0]
+                                   .indices_length;
 
   _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
     draw_info_t draw_info;
@@ -196,8 +127,8 @@ imgui_scene::create_chest(std::string_view name,
     direct_uniform_info.memory_size = sizeof(draw_info);
 
     for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
-      chest.direct_uniforms.emplace_back(direct_uniform_info);
-      std::memcpy(chest.direct_uniforms.back().memory_ptr(), &draw_info,
+      static_mesh.direct_uniforms.emplace_back(direct_uniform_info);
+      std::memcpy(static_mesh.direct_uniforms.back().memory_ptr(), &draw_info,
                   sizeof(draw_info));
     }
 
@@ -207,15 +138,15 @@ imgui_scene::create_chest(std::string_view name,
       uniform_info.device = _core->device();
       uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
       uniform_info.memory_size = direct_uniform_info.memory_size;
-      chest.uniforms.emplace_back(uniform_info);
+      static_mesh.uniforms.emplace_back(uniform_info);
 
       alex::memory_buffer_write_info_t write_info;
       write_info.physical_device = _core->physical_device();
       write_info.device = _core->device();
-      write_info.direct = &chest.direct_uniforms[i];
-      write_info.write_size = chest.uniforms.back().memory_size();
+      write_info.direct = &static_mesh.direct_uniforms[i];
+      write_info.write_size = static_mesh.uniforms.back().memory_size();
       write_info.commandbuffer = commandbuffer;
-      chest.uniforms.back().record_write(write_info);
+      static_mesh.uniforms.back().record_write(write_info);
     }
 
     auto allocated_frame_uniform_descriptorsets =
@@ -223,12 +154,12 @@ imgui_scene::create_chest(std::string_view name,
             _geometry_rendering->setlayout.frame_uniform.get(),
             vk::DescriptorType::eUniformBuffer, 2);
 
-    chest.uniform_descriptor_pool =
+    static_mesh.uniform_descriptor_pool =
         std::move(allocated_frame_uniform_descriptorsets.pool);
-    chest.uniform_descriptorsets =
+    static_mesh.uniform_descriptorsets =
         std::move(allocated_frame_uniform_descriptorsets.sets);
 
-    for (auto [i, uniform] : chest.uniforms | std::views::enumerate) {
+    for (auto [i, uniform] : static_mesh.uniforms | std::views::enumerate) {
       const auto buffer_info = vk::DescriptorBufferInfo{}
                                    .setBuffer(uniform.buffer())
                                    .setOffset(0)
@@ -238,7 +169,7 @@ imgui_scene::create_chest(std::string_view name,
           vk::WriteDescriptorSet{}
               .setDstBinding(0)
               .setDstArrayElement(0)
-              .setDstSet(chest.uniform_descriptorsets[i].get())
+              .setDstSet(static_mesh.uniform_descriptorsets[i].get())
               .setDescriptorCount(1)
               .setDescriptorType(vk::DescriptorType::eUniformBuffer)
               .setBufferInfo(buffer_info)};
@@ -252,12 +183,13 @@ imgui_scene::create_chest(std::string_view name,
             _geometry_rendering->setlayout.diffuse.get(),
             vk::DescriptorType::eCombinedImageSampler, 2);
 
-    chest.diffuse_descriptor_pool =
+    static_mesh.diffuse_descriptor_pool =
         std::move(allocated_diffuse_descriptorsets.pool);
-    chest.diffuse_descriptorsets =
+    static_mesh.diffuse_descriptorsets =
         std::move(allocated_diffuse_descriptorsets.sets);
 
-    for (vk::UniqueDescriptorSet &diffuse_set : chest.diffuse_descriptorsets) {
+    for (vk::UniqueDescriptorSet &diffuse_set :
+         static_mesh.diffuse_descriptorsets) {
       const auto image_info =
           vk::DescriptorImageInfo{}
               .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
@@ -296,23 +228,42 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
 
   _ui_level_editor = ui_level_editor_t(&_world->transform_hierarchy());
 
+  model_load_info_t fox_info;
+  fox_info.core = _core;
+  fox_info.path = "/home/th/Assets/Fox/glTF/Fox.gltf";
+  fox_info.texture.filter = vk::Filter::eLinear;
+  auto fox = model_source_t::create(fox_info);
+  if (fox.has_value()) {
+    _fox = std::move(fox.value());
+  } else {
+    ALEX_ERROR("ERROR loading fox: {}:{}", to_string(fox.error().code()),
+               fox.error().error());
+  }
+
   glm::mat4 translation =
       glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
   glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.02f));
   auto id = _world->transform_hierarchy().add(model_matrix);
 
-  _world->add_object(create_chest("chest 0", id.value()));
+  _world->add_entity(create_chest("chest 0", id.value()));
 
   translation = glm::translate(glm::mat4(1.0f), glm::vec3(2.5f, 0.0f, 0.0f));
   model_matrix = glm::scale(translation, glm::vec3(0.02f));
   id = _world->transform_hierarchy().add(model_matrix);
-  _world->add_object(create_chest("chest 1", id.value()));
+  _world->add_entity(create_chest("chest 1", id.value()));
 
   translation = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, -2.5f));
   model_matrix = glm::scale(translation, glm::vec3(0.02f));
   id = _world->transform_hierarchy().add_child_global_location(
-      model_matrix, _world->objects().back().transform_id);
-  _world->add_object(create_chest("chest 2", id.value()));
+      model_matrix, _world->entities().back().transform_id());
+  _world->add_entity(create_chest("chest 2", id.value()));
+
+  translation = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0f, -2.0f));
+  model_matrix = glm::scale(translation, glm::vec3(0.05f));
+  id = _world->transform_hierarchy().add(model_matrix);
+  auto fox_entity = static_mesh_entity_t("fox", id.value());
+  fox_entity.set_model_source(_core, _geometry_rendering, _fox.value());
+  _world->add_entity(std::move(fox_entity));
 }
 
 constexpr imgui_scene::~imgui_scene() {}
@@ -408,23 +359,25 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
 
   graph.set_end(debugui_task_id);
 
-  graph.add_task(upload_task_id,
-                 std::make_unique<alex::simple_task_t>(
-                     "upload", [&](vk::CommandBuffer commandbuffer) {
-                       for (object_t &model : _world->objects()) {
-                         static_object_update_info_t update_info;
-                         update_info.physical_device = _core->physical_device();
-                         update_info.device = _core->device();
-                         update_info.commandbuffer = commandbuffer;
-                         update_info.flightframe = next_frame_info.flightframe;
-                         update_info.transform_hierarchy =
-                             &_world->transform_hierarchy();
-                         update_info.camera_view = _world->camera().view();
-                         update_info.camera_projection =
-                             _world->camera().projection();
-                         model.update(update_info);
-                       }
-                     }));
+  graph.add_task(
+      upload_task_id,
+      std::make_unique<alex::simple_task_t>(
+          "upload", [&](vk::CommandBuffer commandbuffer) {
+            for (entity_t &entity : _world->entities()) {
+              if (auto *static_mesh = entity.get<static_mesh_entity_t>()) {
+                static_mesh_entity_update_info_t update_info;
+                update_info.physical_device = _core->physical_device();
+                update_info.device = _core->device();
+                update_info.commandbuffer = commandbuffer;
+                update_info.flightframe = next_frame_info.flightframe;
+                update_info.transform_hierarchy =
+                    &_world->transform_hierarchy();
+                update_info.camera_view = _world->camera().view();
+                update_info.camera_projection = _world->camera().projection();
+                static_mesh->resource_update(update_info);
+              }
+            }
+          }));
 
   graph.add_task(
       blit_geometry_to_debugui_task_id,
@@ -578,13 +531,15 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
         commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                    _geometry_rendering->pipeline->pipeline());
 
-        for (object_t &model : _world->objects()) {
-          object_draw_info_t info;
-          info.commandbuffer = commandbuffer;
-          info.flightframe = next_frame_info.flightframe;
-          info.geometry_pipeline_layout =
-              _geometry_rendering->pipeline->layout();
-          model.draw(info);
+        for (entity_t &entity : _world->entities()) {
+          if (auto *static_mesh = entity.get<static_mesh_entity_t>()) {
+            static_mesh_entity_draw_info_t info;
+            info.commandbuffer = commandbuffer;
+            info.flightframe = next_frame_info.flightframe;
+            info.geometry_pipeline_layout =
+                _geometry_rendering->pipeline->layout();
+            static_mesh->draw(info);
+          }
         }
         commandbuffer.endRenderPass();
       }));
@@ -631,9 +586,7 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
             _ui_game_manager.draw();
 
             if (_ui_game_manager.show_level_editor()) {
-              _ui_level_editor.draw(_world->objects(), _world->actors(),
-                                    _world->camera().view(),
-                                    _world->camera().projection());
+              _ui_level_editor.draw(_world.value());
             }
 
             ImGui::Render();

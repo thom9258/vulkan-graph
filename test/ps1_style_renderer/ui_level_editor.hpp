@@ -3,9 +3,8 @@
 #include "ImGuizmo.h"
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
-#include "object.hpp"
-#include "actor.hpp"
-#include "ps1_style_renderer/include_glm.hpp"
+#include "include_glm.hpp"
+#include "world.hpp"
 
 #include "imgui_context.hpp"
 #include "utility/transform_hierarchy.hpp"
@@ -15,6 +14,7 @@
 
 #include <algorithm> // for std::swap
 #include <print>
+#include <ranges>
 #include <span>
 #include <string_view>
 
@@ -31,27 +31,29 @@ public:
 
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
 
-  constexpr auto draw_node(std::size_t &id_index, std::span<object_t> objects,
-                           transform_id_t id) -> void;
+  constexpr auto draw_entity(std::size_t &id_index,
+                             std::span<entity_t> entities, transform_id_t id)
+      -> void;
+
+  constexpr auto draw_player(std::size_t &id_index, player_t &player,
+                             transform_id_t id) -> void;
 
   constexpr auto draw_edit_mode() -> void;
 
-  constexpr auto draw_hierarchy(std::span<object_t> objects, std::span<actor_t> actors) -> void;
+  constexpr auto draw_hierarchy(world_t &world) -> void;
 
   constexpr auto draw_selected(glm::mat4 view, glm::mat4 projection) -> void;
 
-  constexpr auto draw(std::span<object_t> objects, std::span<actor_t> actors, glm::mat4 view,
-                      glm::mat4 projection) -> void;
+  constexpr auto draw(world_t &world) -> void;
 
-  constexpr auto find(std::span<object_t> objects, transform_id_t id)
-      -> object_t *;
+  constexpr auto find(std::span<entity_t> entities, transform_id_t id)
+      -> entity_t *;
 
 private:
   glm_transform_hierarchy *_transform_hierarchy{nullptr};
-  bool _show_object_hierarchy{false};
-  bool _show_actor_hierarchy{false};
+  bool _show_entity_hierarchy{true};
 
-  object_t *_selected{nullptr};
+  entity_t *_selected{nullptr};
   int _selected_operation{0};
   int _selected_locale{0};
 };
@@ -110,62 +112,42 @@ constexpr ui_level_editor_t::ui_level_editor_t(
 
 constexpr auto ui_level_editor_t::update_input(std::span<SDL_Event> events)
     -> void {
-  // auto shift_pressed = false;
-  for (SDL_Event event : events) {
-    switch (event.type) {
-      // case SDL_PRESSED:
-      //   switch (event.key.keysym.sym) {
-      //   case SDLK_LSHIFT:
-      //     shift_pressed = true;
-      //     break;
-      //   }
-      //   break;
 
-    case SDL_KEYDOWN:
-      switch (event.key.keysym.sym) {
-      case SDLK_ESCAPE: {
-        _selected = nullptr;
-        break;
-      }
-      case SDLK_1: {
-        // if (shift_pressed) {
+  // Genveje: W = Flyt, E = Roter, R = Skaler
+  if (!ImGui::IsAnyItemActive()) {
+    if (ImGui::IsKeyDown(ImGuiMod_Alt)) {
+      if (ImGui::IsKeyPressed(ImGuiKey_1))
         _selected_operation = operation_to_index(ImGuizmo::TRANSLATE);
-        //}
-      } break;
-      case SDLK_2: {
-        // if (shift_pressed) {
+      if (ImGui::IsKeyPressed(ImGuiKey_2))
         _selected_operation = operation_to_index(ImGuizmo::ROTATE);
-        //}
-      } break;
-      case SDLK_3: {
-        // if (shift_pressed) {
+      if (ImGui::IsKeyPressed(ImGuiKey_3))
         _selected_operation = operation_to_index(ImGuizmo::SCALE);
-        //}
-      } break;
-      }
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+      _selected = nullptr;
     }
   }
 }
 
-constexpr auto ui_level_editor_t::find(std::span<object_t> objects,
-                                       transform_id_t id) -> object_t * {
-  for (object_t &object : objects) {
-    if (object.transform_id == id) {
-      return &object;
+constexpr auto ui_level_editor_t::find(std::span<entity_t> entities,
+                                       transform_id_t id) -> entity_t * {
+  for (entity_t &entity : entities) {
+    if (entity.transform_id() == id) {
+      return &entity;
     }
   }
 
   return nullptr;
 }
 
-static constexpr const std::string_view object_drag_id{"DRAGGED OBJECT"};
+constexpr auto ui_level_editor_t::draw_entity(std::size_t &id_index,
+                                              std::span<entity_t> entities,
+                                              transform_id_t id) -> void {
 
-constexpr auto ui_level_editor_t::draw_node(std::size_t &id_index,
-                                            std::span<object_t> objects,
-                                            transform_id_t id) -> void {
-
-  object_t *object = find(objects, id);
-  if (object == nullptr) {
+  static constexpr const std::string_view drag_id{"DRAGGED ENTITY"};
+  entity_t *entity = find(entities, id);
+  if (entity == nullptr) {
     return;
   }
 
@@ -173,34 +155,35 @@ constexpr auto ui_level_editor_t::draw_node(std::size_t &id_index,
       ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_Selected;
 
   ImGui::PushID(id_index);
-  bool const open = ImGui::TreeNodeEx(object->name.c_str(), flags);
+  auto const name = std::string(entity->name());
+  bool const open = ImGui::TreeNodeEx(name.c_str(), flags);
 
   if (ImGui::BeginDragDropTarget()) {
     ImGuiDragDropFlags target_flags =
         ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
     if (const ImGuiPayload *payload =
-            ImGui::AcceptDragDropPayload(object_drag_id.data(), target_flags)) {
-      auto dropped = reinterpret_cast<object_t *>(payload->Data);
-      _transform_hierarchy->reparent(dropped->transform_id,
-                                     object->transform_id);
+            ImGui::AcceptDragDropPayload(drag_id.data(), target_flags)) {
+      auto dropped = reinterpret_cast<entity_t *>(payload->Data);
+      _transform_hierarchy->reparent(dropped->transform_id(),
+                                     entity->transform_id());
     }
 
     ImGui::EndDragDropTarget();
   }
 
   if (ImGui::BeginDragDropSource()) {
-    ImGui::SetDragDropPayload(object_drag_id.data(), object, sizeof(object_t));
+    ImGui::SetDragDropPayload(drag_id.data(), entity, sizeof(entity_t));
     ImGui::EndDragDropSource();
   }
 
   if (ImGui::IsItemClicked()) {
-    _selected = object;
+    _selected = entity;
   }
 
   if (open) {
     std::vector<transform_id_t> children = _transform_hierarchy->children(id);
     for (transform_id_t child : children) {
-      draw_node(id_index, objects, child);
+      draw_entity(id_index, entities, child);
     }
 
     ImGui::TreePop();
@@ -210,30 +193,27 @@ constexpr auto ui_level_editor_t::draw_node(std::size_t &id_index,
   id_index++;
 }
 
-constexpr auto ui_level_editor_t::draw_hierarchy(std::span<object_t> objects, std::span<actor_t> actors)
-    -> void {
+constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
   // https://kahwei.dev/2022/06/20/imgui-tree-node/
   // https://ruby0x1.github.io/machinery_blog_archive/post/implementing-drag-and-drop-in-an-imgui/index.html
   std::size_t id_index = 0;
   std::vector<transform_id_t> roots = _transform_hierarchy->roots();
 
   ImGui::Separator();
-  ImGui::Checkbox("Objects", &_show_object_hierarchy);
-  if (_show_object_hierarchy) {
-	//TODO: filter transforms to only contain objects
-    for (transform_id_t root : roots) {
-      draw_node(id_index, objects, root);
+  ImGui::Checkbox("Entities", &_show_entity_hierarchy);
+  if (_show_entity_hierarchy) {
+    if (ImGui::Button("Add Entity")) {
+      auto id = _transform_hierarchy->add(glm::mat4(1.0f));
+      if (id.has_value()) {
+        // TODO: open dropdown and specify what entity to add!
+        // entity_t &entity = world.new_entity("<new entity>", *id);
+        //_selected = &entity;
+      }
     }
-  }
 
-  ImGui::Separator();
-  ImGui::Checkbox("Actors", &_show_actor_hierarchy);
-  if (_show_actor_hierarchy) {
-	//TODO: filter transforms to only contain actors
-    //     std::vector<transform_id_t> roots = _transform_hierarchy->roots();
-    //     for (transform_id_t root : roots) {
-    //       draw_node(id_index, objects, root);
-    //     }
+    for (transform_id_t root : roots) {
+      draw_entity(id_index, world.entities(), root);
+    }
   }
 
   //   ImGui::Separator();
@@ -241,42 +221,83 @@ constexpr auto ui_level_editor_t::draw_hierarchy(std::span<object_t> objects, st
 }
 
 constexpr auto ui_level_editor_t::draw_edit_mode() -> void {
-  if (ImGui::Combo("Operation", &_selected_operation, operations,
+  ImGui::Text("Operation");
+  ImGui::SameLine();
+  if (ImGui::Combo("##Operation", &_selected_operation, operations,
                    IM_ARRAYSIZE(operations))) {
   }
 
-  if (ImGui::Combo("Mode", &_selected_locale, locales, IM_ARRAYSIZE(locales))) {
+  ImGui::Text("Mode     ");
+  ImGui::SameLine();
+  if (ImGui::Combo("##Mode", &_selected_locale, locales,
+                   IM_ARRAYSIZE(locales))) {
   }
 }
 
 constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
                                                 glm::mat4 projection) -> void {
   if (_selected != nullptr) {
-    if (_transform_hierarchy->is_valid(_selected->transform_id)) {
-      ImGui::Text("%s", _selected->name.c_str());
-      auto transform =
-          _transform_hierarchy->global_location(_selected->transform_id);
-      glm::vec3 scale;
-      glm::quat orientation;
-      glm::vec3 orientationEulerRadian = glm::eulerAngles(orientation);
-      glm::vec3 orientationeulerDegree = glm::degrees(orientationEulerRadian);
-      glm::vec3 translation(0.0f);
-      glm::vec3 skew;
-      glm::vec4 perspective;
-      glm::decompose(transform.value(), scale, orientation, translation, skew,
-                     perspective);
+    if (_transform_hierarchy->is_valid(_selected->transform_id())) {
+      ImGui::Text("Entity Details");
 
-      ImGui::Text("Pos:   %f %f %f", translation.x, translation.y,
-                  translation.z);
-      ImGui::Text("Rot:   %f %f %f", orientationeulerDegree.x,
-                  orientationeulerDegree.y, orientationeulerDegree.z);
-      ImGui::Text("Scale: %f %f %f", scale.x, scale.y, scale.z);
+      std::array<char, 128> name_buffer;
+      std::ranges::fill(name_buffer, '\0');
+
+	  auto name = std::string(_selected->name());
+      for (std::size_t i = 0; i < name.size(); i++) {
+        name_buffer[i] = name[i];
+      }
+
+      if (ImGui::InputText("##Name", name_buffer.data(), name_buffer.size(),
+                           ImGuiInputTextFlags_EnterReturnsTrue)) {
+        _selected->set_name(name_buffer.data());
+      }
+
+      auto transform =
+          _transform_hierarchy->global_location(_selected->transform_id());
+
+      float translation[3];
+      float rotation[3];
+      float scale[3];
+      ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(transform.value()),
+                                            translation, rotation, scale);
+
+      ImGui::PushItemWidth(-1.0f);
+      ImGui::Text("Translation");
+      ImGui::SameLine();
+      bool const isUsingPos =
+          ImGui::DragFloat3("##Position", translation, 0.1f);
+      if (isUsingPos) {
+        _selected_operation =
+            operation_to_index(ImGuizmo::OPERATION::TRANSLATE);
+      }
+
+      ImGui::Text("Rotation   ");
+      ImGui::SameLine();
+      bool const isUsingRot = ImGui::DragFloat3("##Rotation", rotation, 1.0f);
+      if (isUsingRot) {
+        _selected_operation = operation_to_index(ImGuizmo::OPERATION::ROTATE);
+      }
+
+      ImGui::Text("Scale      ");
+      ImGui::SameLine();
+      bool const isUsingSc = ImGui::DragFloat3("##Scale", scale, 0.1f);
+      if (isUsingSc) {
+        _selected_operation = operation_to_index(ImGuizmo::OPERATION::SCALE);
+      }
+
+      bool const isUsingComponents = isUsingPos | isUsingRot | isUsingSc;
+
+      ImGui::PopItemWidth();
+      if (isUsingComponents) {
+        ImGuizmo::RecomposeMatrixFromComponents(
+            translation, rotation, scale, glm::value_ptr(transform.value()));
+      }
 
       ImGuiIO &io = ImGui::GetIO();
       ImGuizmo::SetOrthographic(false);
       ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
 
-      glm::mat4 model = transform.value();
       // imguizmo uses opengl style projection but since we are in vulkan,
       // we need to revert the projection matrix flip we do when calculating
       // the projection matrix
@@ -285,25 +306,22 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
       ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection),
                            index_to_operation(_selected_operation),
                            index_to_locale(_selected_locale),
-                           glm::value_ptr(model));
-
-      if (ImGuizmo::IsUsing()) {
-        _transform_hierarchy->set_global_location(_selected->transform_id,
-                                                  model);
+                           glm::value_ptr(transform.value()));
+      if (isUsingComponents || ImGuizmo::IsUsing()) {
+        _transform_hierarchy->set_global_location(_selected->transform_id(),
+                                                  transform.value());
       }
     }
   }
 }
 
-constexpr auto ui_level_editor_t::draw(std::span<object_t> objects, std::span<actor_t> actors,
-                                       glm::mat4 view, glm::mat4 projection)
-    -> void {
+constexpr auto ui_level_editor_t::draw(world_t &world) -> void {
   ImGui::Begin("Level Editor");
   draw_edit_mode();
   ImGui::Separator();
-  draw_hierarchy(objects, actors);
+  draw_hierarchy(world);
   ImGui::Separator();
-  draw_selected(view, projection);
+  draw_selected(world.camera().view(), world.camera().projection());
   ImGui::End();
 }
 

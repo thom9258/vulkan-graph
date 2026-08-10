@@ -132,7 +132,7 @@ public:
     return std::nullopt;
   }
 
-  [[nodiscard]] constexpr auto children(transform_id_t &id)
+  [[nodiscard]] constexpr auto children(const transform_id_t &id)
       -> std::vector<transform_id_t> {
     transform_t *transform = find(id);
     if (transform == nullptr) {
@@ -160,7 +160,7 @@ public:
     return roots;
   }
 
-  constexpr auto remove_and_preserve_children(transform_id_t &id) -> void {
+  constexpr auto remove_and_preserve_children(const transform_id_t &id) -> void {
     transform_t *transform = find(id);
     if (transform == nullptr) {
       return;
@@ -177,7 +177,7 @@ public:
     }
   }
 
-  [[nodiscard]] constexpr auto is_valid(transform_id_t &id) -> bool {
+  [[nodiscard]] constexpr auto is_valid(const transform_id_t &id) -> bool {
     if (id.index() == transform_id_t::invalid_index_v ||
         id.generation() == transform_id_t::invalid_generation_v) {
       return false;
@@ -191,7 +191,7 @@ public:
     return transform.generation == id.generation() && transform.active == true;
   }
 
-  constexpr auto global_location(transform_id_t &id)
+  constexpr auto global_location(const transform_id_t &id)
       -> std::optional<location_t> {
     transform_t *transform = find(id);
     if (transform == nullptr) {
@@ -208,7 +208,7 @@ public:
     return transform->global_location;
   }
 
-  constexpr auto local_location(transform_id_t &id)
+  constexpr auto local_location(const transform_id_t &id)
       -> std::optional<location_t> {
     if (!is_valid(id)) {
       return std::nullopt;
@@ -222,7 +222,7 @@ public:
     return transform->local_location;
   }
 
-  constexpr auto set_local_location(transform_id_t &id, location_t location)
+  constexpr auto set_local_location(const transform_id_t &id, location_t location)
       -> void {
     transform_t *transform = find(id);
     if (transform == nullptr) {
@@ -233,7 +233,7 @@ public:
     transform->dirty = true;
   }
 
-  constexpr auto set_global_location(transform_id_t &id, location_t location)
+  constexpr auto set_global_location(const transform_id_t &id, location_t location)
       -> void {
     transform_t *transform = find(id);
     if (transform == nullptr) {
@@ -253,7 +253,7 @@ public:
     transform->dirty = true;
   }
 
-  constexpr auto parent(transform_id_t &id) -> transform_id_t {
+  constexpr auto parent(const transform_id_t &id) -> transform_id_t {
     transform_t *transform = find(id);
     if (transform == nullptr) {
       return invalid_transform_id;
@@ -262,7 +262,7 @@ public:
     return transform->parent;
   }
 
-  constexpr auto unparent(transform_id_t &id) -> void {
+  constexpr auto unparent(const transform_id_t &id) -> void {
     transform_t *transform = find(id);
     if (transform == nullptr) {
       return;
@@ -272,7 +272,7 @@ public:
     transform->dirty = true;
   }
 
-  constexpr auto reparent(transform_id_t &id, transform_id_t &parent) -> void {
+  constexpr auto reparent(const transform_id_t &id, const transform_id_t &parent) -> void {
     transform_t *transform = find(id);
     if (transform == nullptr) {
       return;
@@ -296,7 +296,7 @@ public:
     transform->dirty = true;
   }
 
-  [[nodiscard]] constexpr auto unsafe_find(transform_id_t &id)
+  [[nodiscard]] constexpr auto unsafe_find(const transform_id_t &id)
       -> transform_t * {
     return find(id);
   }
@@ -340,7 +340,7 @@ private:
     }
   }
 
-  [[nodiscard]] constexpr auto find(transform_id_t &id) -> transform_t * {
+  [[nodiscard]] constexpr auto find(const transform_id_t &id) -> transform_t * {
     if (!is_valid(id)) {
       return nullptr;
     }
