@@ -22,20 +22,25 @@
 
 namespace game {
 
+struct material_properties_t {
+  bool two_sided{false};
+  float transparency{0.0f};
+  float shininess{0.0f};
+  float opacity{1.0f};
+};
+
 struct material_t {
   std::string name;
 
   std::optional<alex::texture_t> diffuse;
   std::optional<vk::UniqueSampler> diffuse_sampler;
-  std::optional<alex::flightframe_array_t<vk::UniqueDescriptorSet>> diffuse_descriptorsets;
+  std::optional<material_properties_t> diffuse_properties;
 
   std::optional<alex::texture_t> specular;
   std::optional<vk::UniqueSampler> specular_sampler;
-  std::optional<alex::flightframe_array_t<vk::UniqueDescriptorSet>> specular_descriptorsets;
 
   std::optional<alex::texture_t> ambient;
   std::optional<vk::UniqueSampler> ambient_sampler;
-  std::optional<alex::flightframe_array_t<vk::UniqueDescriptorSet>> ambient_descriptorsets;
 };
 
 struct mesh_t {

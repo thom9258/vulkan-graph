@@ -117,7 +117,7 @@ imgui_scene::create_chest(std::string_view name,
                                    .meshes[0]
                                    .indices_length;
 
-  _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
+  _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) -> void {
     draw_info_t draw_info;
 
     alex::direct_memory_buffer_info_t direct_uniform_info;

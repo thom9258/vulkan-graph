@@ -1,5 +1,6 @@
 #include "resource_loader.hpp"
 
+#include "alex/log.hpp"
 #include "alex/memory_buffer.hpp"
 #include "alex/texture.hpp"
 #include "ps1_style_renderer/bitmap.hpp"
@@ -247,8 +248,8 @@ constexpr auto create_texture_sampler(alex::core_t *core) {
   return core->device().createSamplerUnique(sampler_info);
 }
 
-constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
-                             aiMaterial *material) -> material_t {
+constexpr auto load_material(model_load_info_t &info, aiMaterial *material)
+    -> material_t {
 
   std::filesystem::path const basedir = info.path.parent_path();
   material_t out;
@@ -258,8 +259,20 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
       util::get_first_diffuse_path(material);
 
   if (diffuse_path.has_value()) {
+
+    out.diffuse_properties.emplace();
+    material->Get(AI_MATKEY_TWOSIDED, out.diffuse_properties->two_sided);
+    material->Get(AI_MATKEY_OPACITY, out.diffuse_properties->opacity);
+    material->Get(AI_MATKEY_SHININESS, out.diffuse_properties->shininess);
+    material->Get(AI_MATKEY_TRANSPARENCYFACTOR,
+                  out.diffuse_properties->transparency);
+
     std::filesystem::path const path = basedir / diffuse_path.value();
-    auto diffuse_bitmap = bitmap_t::create(path, bitmap_format_t::rgba);
+    const auto format = (out.diffuse_properties->opacity == 1.0f)
+                            ? bitmap_format_t::rgb
+                            : bitmap_format_t::rgba;
+
+    auto diffuse_bitmap = bitmap_t::create(path, format);
     if (diffuse_bitmap.has_value()) {
       alex::texture_info_t texture_info;
       texture_info.physical_device = info.core->physical_device();
@@ -276,6 +289,55 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
       out.diffuse.emplace(texture_info);
       immediate_copy_bitmap_to_texture(info.core, out.diffuse.value(),
                                        diffuse_bitmap.value());
+
+      const auto features = info.core->physical_device().getFeatures();
+      const auto properties = info.core->physical_device().getProperties();
+      const auto max_anisotropy =
+          features.samplerAnisotropy
+              ? std::min(4.0f, properties.limits.maxSamplerAnisotropy)
+              : 1.0f;
+
+      int u_mapmode{0};
+      material->Get(AI_MATKEY_MAPPINGMODE_U_DIFFUSE(0), u_mapmode);
+      int v_mapmode{0};
+      material->Get(AI_MATKEY_MAPPINGMODE_V_DIFFUSE(0), v_mapmode);
+
+      auto find_mapmode = [](int mapmode) -> vk::SamplerAddressMode {
+        switch (mapmode) {
+        case aiTextureMapMode_Wrap:
+          return vk::SamplerAddressMode::eRepeat;
+        case aiTextureMapMode_Mirror:
+          return vk::SamplerAddressMode::eMirroredRepeat;
+        case aiTextureMapMode_Clamp:
+          return vk::SamplerAddressMode::eClampToBorder;
+        default:
+          break;
+        }
+
+        return vk::SamplerAddressMode::eRepeat;
+      };
+
+      const vk::Filter filter = vk::Filter::eNearest;
+      const auto sampler_info =
+          vk::SamplerCreateInfo{}
+              .setMagFilter(filter)
+              .setMinFilter(filter)
+              .setAddressModeU(find_mapmode(u_mapmode))
+              .setAddressModeV(find_mapmode(v_mapmode))
+              .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+              .setAnisotropyEnable(features.samplerAnisotropy)
+              .setMaxAnisotropy(max_anisotropy)
+              .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+              .setUnnormalizedCoordinates(false)
+              .setCompareEnable(false)
+              .setCompareOp(vk::CompareOp::eAlways)
+              .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+              .setMipLodBias(0.0f)
+              .setMinLod(0.0f)
+              .setMaxLod(0.0f);
+
+      out.diffuse_sampler =
+          info.core->device().createSamplerUnique(sampler_info);
     }
   }
   std::optional<std::filesystem::path> specular_path =
@@ -298,6 +360,7 @@ constexpr auto load_material(model_load_info_t &info, const aiScene *scene,
 constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
                          aiMesh *mesh) -> mesh_t {
   std::vector<simple_vertex_t> vertices;
+
   vertices.reserve(mesh->mNumVertices);
   for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
     simple_vertex_t vertex{};
@@ -377,6 +440,11 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
 
   mesh_t result;
 
+  aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
+  if (material != nullptr) {
+    result.material = std::string(material->GetName().C_Str());
+  }
+
   info.core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
     alex::memory_buffer_write_info_t vertices_buffer_write_info;
     vertices_buffer_write_info.physical_device = info.core->physical_device();
@@ -420,7 +488,7 @@ constexpr auto load_model(model_load_info_t &info,
 
     aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
     if (material != nullptr) {
-      materials.emplace_back(load_material(info, scene, material));
+      materials.emplace_back(load_material(info, material));
     }
   }
 

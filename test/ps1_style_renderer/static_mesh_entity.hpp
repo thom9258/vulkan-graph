@@ -27,6 +27,13 @@ struct static_mesh_ref_t {
 
   vk::UniqueDescriptorPool diffuse_descriptor_pool;
   std::vector<vk::UniqueDescriptorSet> diffuse_descriptorsets;
+
+  static_mesh_ref_t() = default;
+  ~static_mesh_ref_t() = default;
+  static_mesh_ref_t(static_mesh_ref_t &&) = default;
+  static_mesh_ref_t &operator=(static_mesh_ref_t &&) = default;
+  static_mesh_ref_t(const static_mesh_ref_t &) = delete;
+  static_mesh_ref_t &operator=(const static_mesh_ref_t &) = delete;
 };
 
 struct static_model_ref_t {
@@ -137,7 +144,7 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
       draw_info.view = info.camera_view;
       draw_info.projection = info.camera_projection;
 
-	  //TODO: must calculate parent to child matrix relationship
+      // TODO: must calculate parent to child matrix relationship
       draw_info.model = model_matrix.value();
       std::memcpy(ref.direct_uniforms[info.flightframe].memory_ptr(),
                   &draw_info, sizeof(draw_info));
@@ -215,7 +222,7 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
   ref.indices = &mesh.indices.value();
   ref.indices_length = mesh.indices_length;
 
-  core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
+  core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) -> void {
     draw_info_t draw_info;
 
     alex::direct_memory_buffer_info_t direct_uniform_info;
@@ -290,6 +297,12 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
       if (material_t *material = model_source.find_material(*mesh.material)) {
         for (vk::UniqueDescriptorSet &diffuse_set :
              ref.diffuse_descriptorsets) {
+          if (material->diffuse_sampler->get() == VK_NULL_HANDLE) {
+            ALEX_WARN("Mesh texture sampler for '{}' was not set by "
+                      "loader!", model_source.path()
+                          .string());
+          }
+
           const auto image_info =
               vk::DescriptorImageInfo{}
                   .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
@@ -308,7 +321,14 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
           core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
                                               nullptr);
         }
+      } else {
+        ALEX_WARN("Mesh inside model loaded from '{}' has texture but it could "
+                  "not be found",
+                  model_source.path().string());
       }
+    } else {
+      ALEX_WARN("Mesh inside model loaded from '{}' has no texture",
+                model_source.path().string());
     }
   });
 
