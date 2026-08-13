@@ -4,6 +4,8 @@
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
 #include "include_glm.hpp"
+#include "ps1_style_renderer/rendering.hpp"
+#include "resources.hpp"
 #include "world.hpp"
 
 #include "imgui_context.hpp"
@@ -27,7 +29,9 @@ public:
   constexpr ui_level_editor_t() = default;
 
   constexpr explicit ui_level_editor_t(
-      glm_transform_hierarchy *transform_hierarchy);
+      world_t *world, glm_transform_hierarchy *transform_hierarchy,
+      resources_t *resources, alex::core_t *core,
+      geometry_rendering_t *geometry_rendering);
 
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
 
@@ -51,6 +55,14 @@ public:
 
 private:
   glm_transform_hierarchy *_transform_hierarchy{nullptr};
+  resources_t *_resources{nullptr};
+  world_t *_world{nullptr};
+  alex::core_t *_core{nullptr};
+  geometry_rendering_t *_geometry_rendering{nullptr};
+
+  std::vector<std::string> _all_models;
+  int _add_entity_selected{0};
+
   bool _show_entity_hierarchy{true};
 
   entity_t *_selected{nullptr};
@@ -107,13 +119,18 @@ constexpr auto mode_to_index(ImGuizmo::MODE mode) -> int {
 }
 
 constexpr ui_level_editor_t::ui_level_editor_t(
-    glm_transform_hierarchy *transform_hierarchy)
-    : _transform_hierarchy{transform_hierarchy} {}
+    world_t *world, glm_transform_hierarchy *transform_hierarchy,
+    resources_t *resources, alex::core_t *core,
+    geometry_rendering_t *geometry_rendering)
+    : _world{world}, _transform_hierarchy{transform_hierarchy},
+      _resources{resources}, _core{core},
+      _geometry_rendering{geometry_rendering} {
 
-constexpr auto ui_level_editor_t::update_input(std::span<SDL_Event> events)
-    -> void {
+  _all_models = _resources->get_all_model_names();
+}
 
-  // Genveje: W = Flyt, E = Roter, R = Skaler
+constexpr auto ui_level_editor_t::update_input(std::span<SDL_Event>) -> void {
+
   if (!ImGui::IsAnyItemActive()) {
     if (ImGui::IsKeyDown(ImGuiMod_Alt)) {
       if (ImGui::IsKeyPressed(ImGuiKey_1))
@@ -202,13 +219,35 @@ constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
   ImGui::Separator();
   ImGui::Checkbox("Entities", &_show_entity_hierarchy);
   if (_show_entity_hierarchy) {
+
+    std::vector<const char *> model_ptrs;
+    for (std::string &model : _all_models) {
+      model_ptrs.push_back(model.c_str());
+    }
+
     if (ImGui::Button("Add Entity")) {
       auto id = _transform_hierarchy->add(glm::mat4(1.0f));
       if (id.has_value()) {
-        // TODO: open dropdown and specify what entity to add!
-        // entity_t &entity = world.new_entity("<new entity>", *id);
-        //_selected = &entity;
+        std::println("Added entity {}", _all_models[_add_entity_selected]);
       }
+
+      model_source_t *source =
+          _resources->get_model(_all_models[_add_entity_selected]);
+      if (source) {
+        glm::mat4 translation =
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f));
+        glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.05f));
+        auto id = _world->transform_hierarchy().add(model_matrix);
+        auto fox_entity = static_mesh_entity_t("fox", id.value());
+        fox_entity.set_model_source(_core, _geometry_rendering, *source);
+        _world->add_entity(std::move(fox_entity));
+        _selected = &_world->entities().back();
+      }
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Combo("##Add Entity List", &_add_entity_selected,
+                     model_ptrs.data(), model_ptrs.size())) {
     }
 
     for (transform_id_t root : roots) {
@@ -243,7 +282,7 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
       std::array<char, 128> name_buffer;
       std::ranges::fill(name_buffer, '\0');
 
-	  auto name = std::string(_selected->name());
+      auto name = std::string(_selected->name());
       for (std::size_t i = 0; i < name.size(); i++) {
         name_buffer[i] = name[i];
       }

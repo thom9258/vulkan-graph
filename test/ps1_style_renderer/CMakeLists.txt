@@ -26,7 +26,7 @@ FetchContent_MakeAvailable(SimpleGeometry)
 
 FetchContent_Declare(imgui_external
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
-  GIT_TAG v1.92.8-docking
+  GIT_TAG v1.92.8
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
 )

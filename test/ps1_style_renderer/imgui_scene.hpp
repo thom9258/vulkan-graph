@@ -75,12 +75,12 @@ private:
 
   alex::flightframe_array_t<alex::graph_t> _rendergraphs;
   alex::flightframe_array_t<vk::UniqueSemaphore> _rendergraph_semaphores;
-  std::optional<world_t> _world;
-  game::ui_level_editor_t _ui_level_editor;
-  game::ui_game_manager_t _ui_game_manager;
 
   std::optional<resources_t> _resources;
-  std::optional<model_source_t> _fox;
+  std::optional<world_t> _world;
+
+  game::ui_level_editor_t _ui_level_editor;
+  game::ui_game_manager_t _ui_game_manager;
 };
 
 constexpr auto
@@ -228,21 +228,11 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
 
   _world.emplace(_window->window_extent());
 
-  _ui_level_editor = ui_level_editor_t(&_world->transform_hierarchy());
+  _resources.emplace(_core, "../asset_manifest.json");
 
-  _resources.emplace(_core, "../resource_manifest.json");
-
-  model_load_info_t fox_info;
-  fox_info.core = _core;
-  fox_info.path = "/home/th/Assets/Fox/glTF/Fox.gltf";
-  fox_info.texture.filter = vk::Filter::eLinear;
-  auto fox = model_source_t::create(fox_info);
-  if (fox.has_value()) {
-    _fox = std::move(fox.value());
-  } else {
-    ALEX_ERROR("ERROR loading fox: {}:{}", to_string(fox.error().code()),
-               fox.error().error());
-  }
+  _ui_level_editor =
+      ui_level_editor_t(&_world.value(), &_world->transform_hierarchy(),
+                        &(_resources.value()), _core, _geometry_rendering);
 
   glm::mat4 translation =
       glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
@@ -262,12 +252,25 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
       model_matrix, _world->entities().back().transform_id());
   _world->add_entity(create_chest("chest 2", id.value()));
 
-  translation = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0f, -2.0f));
-  model_matrix = glm::scale(translation, glm::vec3(0.05f));
-  id = _world->transform_hierarchy().add(model_matrix);
-  auto fox_entity = static_mesh_entity_t("fox", id.value());
-  fox_entity.set_model_source(_core, _geometry_rendering, _fox.value());
-  _world->add_entity(std::move(fox_entity));
+  model_source_t *fox_source = _resources->get_model("fox");
+  if (fox_source) {
+    translation = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0f, -2.0f));
+    model_matrix = glm::scale(translation, glm::vec3(0.05f));
+    id = _world->transform_hierarchy().add(model_matrix);
+    auto fox_entity = static_mesh_entity_t("fox", id.value());
+    fox_entity.set_model_source(_core, _geometry_rendering, *fox_source);
+    _world->add_entity(std::move(fox_entity));
+  }
+
+  model_source_t *buggy_source = _resources->get_model("corset");
+  if (buggy_source) {
+    translation = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0f, -2.0f));
+    model_matrix = glm::scale(translation, glm::vec3(0.05f));
+    id = _world->transform_hierarchy().add(model_matrix);
+    auto buggy_entity = static_mesh_entity_t("corset", id.value());
+    buggy_entity.set_model_source(_core, _geometry_rendering, *buggy_source);
+    _world->add_entity(std::move(buggy_entity));
+  }
 }
 
 constexpr imgui_scene::~imgui_scene() {}
