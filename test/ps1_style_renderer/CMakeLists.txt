@@ -49,7 +49,7 @@ PUBLIC
 
 FetchContent_Declare(imguizmo_external
   GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
-  GIT_TAG 5ab7676
+  GIT_TAG 664cf2d73864a36b2a8b5091d33fc4578c885eca
   #GIT_TAG master
   #GIT_TAG 1.83
   GIT_SHALLOW TRUE
@@ -60,7 +60,7 @@ FetchContent_Declare(imguizmo_external
 FetchContent_Populate(imguizmo_external)
 
 add_library(imguizmo
-  ${imguizmo_external_SOURCE_DIR}/src/ImGuizmo.cpp
+  ${imguizmo_external_SOURCE_DIR}/ImGuizmo.cpp
 )
 
 target_include_directories(imguizmo
@@ -89,6 +89,7 @@ set(PROGRAM_SOURCES
   thirdparty/stb_image.cpp
   imgui_context.cpp
   static_resources.cpp
+  resources.cpp
   resource_loader.cpp
   bitmap.cpp
   glm_transform_hierarchy.cpp

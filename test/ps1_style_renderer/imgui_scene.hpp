@@ -16,6 +16,7 @@
 #include "ps1_style_renderer/resource_loader.hpp"
 #include "ps1_style_renderer/static_mesh_entity.hpp"
 #include "rendering.hpp"
+#include "resources.hpp"
 #include "static_resources.hpp"
 #include "ui_game_manager.hpp"
 #include "ui_level_editor.hpp"
@@ -78,6 +79,7 @@ private:
   game::ui_level_editor_t _ui_level_editor;
   game::ui_game_manager_t _ui_game_manager;
 
+  std::optional<resources_t> _resources;
   std::optional<model_source_t> _fox;
 };
 
@@ -227,6 +229,8 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
   _world.emplace(_window->window_extent());
 
   _ui_level_editor = ui_level_editor_t(&_world->transform_hierarchy());
+
+  _resources.emplace(_core, "../resource_manifest.json");
 
   model_load_info_t fox_info;
   fox_info.core = _core;
