@@ -12,6 +12,7 @@ find_package(SDL2 REQUIRED)
 find_package(glm REQUIRED)
 find_package(assimp REQUIRED)
 find_package(cereal REQUIRED)
+find_package(glaze REQUIRED)
 
 include(FetchContent)
 message(STATUS "Fetching Simple Geometry")
@@ -49,9 +50,7 @@ PUBLIC
 
 FetchContent_Declare(imguizmo_external
   GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
-  GIT_TAG 664cf2d73864a36b2a8b5091d33fc4578c885eca
-  #GIT_TAG master
-  #GIT_TAG 1.83
+  GIT_TAG 18cef5e031d8c6973d80284c67f60549fafd78c1
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
 )
@@ -60,7 +59,7 @@ FetchContent_Declare(imguizmo_external
 FetchContent_Populate(imguizmo_external)
 
 add_library(imguizmo
-  ${imguizmo_external_SOURCE_DIR}/ImGuizmo.cpp
+  ${imguizmo_external_SOURCE_DIR}/src/ImGuizmo.cpp
 )
 
 target_include_directories(imguizmo
@@ -117,4 +116,5 @@ target_link_libraries(${PROJECT_NAME}
   imguizmo
   assimp::assimp
   cereal::cereal
+  glaze::glaze
 )

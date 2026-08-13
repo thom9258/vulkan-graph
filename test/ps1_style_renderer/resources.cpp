@@ -1,6 +1,6 @@
 #include "resources.hpp"
 
-#include <glaze/glaze.hpp>
+#include <glaze/json.hpp>
 
 namespace game {
 
