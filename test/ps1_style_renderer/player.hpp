@@ -6,7 +6,7 @@
 
 #include "glm_transform_hierarchy.hpp"
 #include "include_glm.hpp"
-#include "rendering.hpp"
+#include "static_render.hpp"
 #include "utility/transform_hierarchy.hpp"
 
 namespace game {
@@ -137,12 +137,12 @@ player_t::draw_resource_update(player_draw_resource_update_info_t &info)
     -> void {
   auto model_matrix = info.transform_hierarchy->global_location(transform_id);
 
-  draw_info_t draw_info;
-  draw_info.view = info.camera_view;
-  draw_info.projection = info.camera_projection;
-  draw_info.model = model_matrix.value();
-  std::memcpy(direct_uniforms[info.flightframe].memory_ptr(), &draw_info,
-              sizeof(draw_info));
+  static_render_t::frame_uniform_t frame_uniform;
+  frame_uniform.view = info.camera_view;
+  frame_uniform.projection = info.camera_projection;
+  frame_uniform.model = model_matrix.value();
+  std::memcpy(direct_uniforms[info.flightframe].memory_ptr(), &frame_uniform,
+              sizeof(frame_uniform));
 
   alex::memory_buffer_write_info_t write_info;
   write_info.physical_device = info.physical_device;

@@ -88,7 +88,7 @@ int main() {
   presenter_info.window_extent.height = window_extent.height;
   alex::presenter_t presenter(presenter_info);
 
-  game::geometry_rendering_t geometry_rendering(core, render_extent);
+  game::static_render_t static_render(core, render_extent);
   game::debugui_rendering_t debugui_rendering(
       core, vk::Extent3D(static_cast<std::int32_t>(window_extent.width),
                          static_cast<std::int32_t>(window_extent.height), 1));
@@ -117,7 +117,7 @@ int main() {
 
   game::imgui_scene_info_t imgui_scene_info;
   imgui_scene_info.core = &core;
-  imgui_scene_info.geometry_rendering = &geometry_rendering;
+  imgui_scene_info.static_render = &static_render;
   imgui_scene_info.debugui_rendering = &debugui_rendering;
   imgui_scene_info.presenter = &presenter;
   imgui_scene_info.imgui_context = &imgui_context;

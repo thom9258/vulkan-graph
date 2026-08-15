@@ -8,7 +8,9 @@
 #include <vulkan/vulkan_to_string.hpp>
 
 #include "../utility/sdl.hpp"
-#include "rendering.hpp"
+
+#include "debugui_render.hpp"
+
 
 namespace game {
 

@@ -4,8 +4,8 @@
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
 #include "include_glm.hpp"
-#include "ps1_style_renderer/rendering.hpp"
 #include "resources.hpp"
+#include "static_render.hpp"
 #include "world.hpp"
 
 #include "imgui_context.hpp"
@@ -18,6 +18,7 @@
 #include <print>
 #include <ranges>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace game {
@@ -31,7 +32,7 @@ public:
   constexpr explicit ui_level_editor_t(
       world_t *world, glm_transform_hierarchy *transform_hierarchy,
       resources_t *resources, alex::core_t *core,
-      geometry_rendering_t *geometry_rendering);
+      static_render_t *static_render);
 
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
 
@@ -43,6 +44,8 @@ public:
                              transform_id_t id) -> void;
 
   constexpr auto draw_edit_mode() -> void;
+
+  constexpr auto draw_world_manager(world_t &world) -> void;
 
   constexpr auto draw_hierarchy(world_t &world) -> void;
 
@@ -58,7 +61,9 @@ private:
   resources_t *_resources{nullptr};
   world_t *_world{nullptr};
   alex::core_t *_core{nullptr};
-  geometry_rendering_t *_geometry_rendering{nullptr};
+  static_render_t *_static_render{nullptr};
+
+  std::optional<std::string> _world_path_str;
 
   std::vector<std::string> _all_models;
   int _add_entity_selected{0};
@@ -120,11 +125,9 @@ constexpr auto mode_to_index(ImGuizmo::MODE mode) -> int {
 
 constexpr ui_level_editor_t::ui_level_editor_t(
     world_t *world, glm_transform_hierarchy *transform_hierarchy,
-    resources_t *resources, alex::core_t *core,
-    geometry_rendering_t *geometry_rendering)
+    resources_t *resources, alex::core_t *core, static_render_t *static_render)
     : _world{world}, _transform_hierarchy{transform_hierarchy},
-      _resources{resources}, _core{core},
-      _geometry_rendering{geometry_rendering} {
+      _resources{resources}, _core{core}, _static_render{static_render} {
 
   _all_models = _resources->get_all_model_names();
 }
@@ -210,6 +213,25 @@ constexpr auto ui_level_editor_t::draw_entity(std::size_t &id_index,
   id_index++;
 }
 
+constexpr auto ui_level_editor_t::draw_world_manager(world_t &world) -> void {
+  thread_local static std::array<char, 512> world_path_buffer;
+  ImGui::InputText("##world manager path", world_path_buffer.data(),
+                   world_path_buffer.size(),
+                   ImGuiInputTextFlags_EnterReturnsTrue);
+
+  auto world_path = std::filesystem::path(
+      std::string(world_path_buffer.data(), world_path_buffer.size()));
+
+  if (ImGui::Button("Save")) {
+    world.save_world(world_path);
+  }
+
+  ImGui::SameLine();
+  if (ImGui::Button("Load")) {
+    world.load_world(world_path);
+  }
+}
+
 constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
   // https://kahwei.dev/2022/06/20/imgui-tree-node/
   // https://ruby0x1.github.io/machinery_blog_archive/post/implementing-drag-and-drop-in-an-imgui/index.html
@@ -225,7 +247,7 @@ constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
       model_ptrs.push_back(model.c_str());
     }
 
-    if (ImGui::Button("Add Entity")) {
+    if (ImGui::Button("Add Static Object")) {
       auto id = _transform_hierarchy->add(glm::mat4(1.0f));
       if (id.has_value()) {
         std::println("Added entity {}", _all_models[_add_entity_selected]);
@@ -239,7 +261,7 @@ constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
         glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.05f));
         auto id = _world->transform_hierarchy().add(model_matrix);
         auto fox_entity = static_mesh_entity_t("fox", id.value());
-        fox_entity.set_model_source(_core, _geometry_rendering, *source);
+        fox_entity.set_model_source(_core, _static_render, *source);
         _world->add_entity(std::move(fox_entity));
         _selected = &_world->entities().back();
       }
@@ -357,6 +379,8 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
 constexpr auto ui_level_editor_t::draw(world_t &world) -> void {
   ImGui::Begin("Level Editor");
   draw_edit_mode();
+  ImGui::Separator();
+  draw_world_manager(world);
   ImGui::Separator();
   draw_hierarchy(world);
   ImGui::Separator();

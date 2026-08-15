@@ -5,8 +5,8 @@
 #include "entity_concept.hpp"
 
 #include "glm_transform_hierarchy.hpp"
-#include "rendering.hpp"
 #include "resource_loader.hpp"
+#include "static_render.hpp"
 #include "utility/transform_hierarchy.hpp"
 
 namespace game {
@@ -93,7 +93,7 @@ public:
   constexpr auto draw(static_mesh_entity_draw_info_t &info) -> void;
 
   constexpr auto set_model_source(alex::core_t *core,
-                                  geometry_rendering_t *geometry_rendering,
+                                  static_render_t *static_render,
                                   model_source_t &model_source) -> void;
 
   std::optional<detail::static_model_ref_t> _static_model_ref;
@@ -140,14 +140,14 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
 
   auto update_model = [&](auto self, detail::static_model_ref_t &ref) -> void {
     for (detail::static_mesh_ref_t &ref : ref.meshes) {
-      draw_info_t draw_info;
-      draw_info.view = info.camera_view;
-      draw_info.projection = info.camera_projection;
+      static_render_t::frame_uniform_t frame_uniform;
+      frame_uniform.view = info.camera_view;
+      frame_uniform.projection = info.camera_projection;
 
       // TODO: must calculate parent to child matrix relationship
-      draw_info.model = model_matrix.value();
+      frame_uniform.model = model_matrix.value();
       std::memcpy(ref.direct_uniforms[info.flightframe].memory_ptr(),
-                  &draw_info, sizeof(draw_info));
+                  &frame_uniform, sizeof(frame_uniform));
 
       alex::memory_buffer_write_info_t write_info;
       write_info.physical_device = info.physical_device;
@@ -213,7 +213,7 @@ constexpr auto static_mesh_entity_t::draw(static_mesh_entity_draw_info_t &info)
 namespace detail {
 
 constexpr auto create_ref_for_mesh(alex::core_t *core,
-                                   geometry_rendering_t *geometry_rendering,
+                                   static_render_t *static_render,
                                    model_source_t &model_source, mesh_t &mesh)
     -> static_mesh_ref_t {
   static_mesh_ref_t ref;
@@ -223,18 +223,18 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
   ref.indices_length = mesh.indices_length;
 
   core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) -> void {
-    draw_info_t draw_info;
+    static_render_t::frame_uniform_t frame_uniform;
 
     alex::direct_memory_buffer_info_t direct_uniform_info;
     direct_uniform_info.physical_device = core->physical_device();
     direct_uniform_info.device = core->device();
     direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-    direct_uniform_info.memory_size = sizeof(draw_info);
+    direct_uniform_info.memory_size = sizeof(frame_uniform);
 
     for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
       ref.direct_uniforms.emplace_back(direct_uniform_info);
-      std::memcpy(ref.direct_uniforms.back().memory_ptr(), &draw_info,
-                  sizeof(draw_info));
+      std::memcpy(ref.direct_uniforms.back().memory_ptr(), &frame_uniform,
+                  sizeof(frame_uniform));
     }
 
     for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
@@ -256,7 +256,7 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
 
     auto allocated_frame_uniform_descriptorsets =
         core->allocate_repeated_descriptorsets(
-            geometry_rendering->setlayout.frame_uniform.get(),
+            static_render->frame_uniform_setlayout(),
             vk::DescriptorType::eUniformBuffer, 2);
 
     ref.uniform_descriptor_pool =
@@ -285,7 +285,7 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
 
     auto allocated_diffuse_descriptorsets =
         core->allocate_repeated_descriptorsets(
-            geometry_rendering->setlayout.diffuse.get(),
+            static_render->diffuse_setlayout(),
             vk::DescriptorType::eCombinedImageSampler, 2);
 
     ref.diffuse_descriptor_pool =
@@ -299,8 +299,8 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
              ref.diffuse_descriptorsets) {
           if (material->diffuse_sampler->get() == VK_NULL_HANDLE) {
             ALEX_WARN("Mesh texture sampler for '{}' was not set by "
-                      "loader!", model_source.path()
-                          .string());
+                      "loader!",
+                      model_source.path().string());
           }
 
           const auto image_info =
@@ -336,20 +336,20 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
 }
 
 constexpr auto create_model_ref(alex::core_t *core,
-                                geometry_rendering_t *geometry_rendering,
+                                static_render_t *static_render,
                                 model_source_t &model_source, model_t &model)
     -> detail::static_model_ref_t {
   detail::static_model_ref_t model_ref;
   model_ref.name = model.name;
 
   for (mesh_t &mesh : model.meshes) {
-    model_ref.meshes.push_back(detail::create_ref_for_mesh(
-        core, geometry_rendering, model_source, mesh));
+    model_ref.meshes.push_back(
+        detail::create_ref_for_mesh(core, static_render, model_source, mesh));
   }
 
   for (model_t &child : model.children) {
     model_ref.children.push_back(
-        create_model_ref(core, geometry_rendering, model_source, child));
+        create_model_ref(core, static_render, model_source, child));
   }
 
   return model_ref;
@@ -359,10 +359,10 @@ constexpr auto create_model_ref(alex::core_t *core,
 
 constexpr auto
 static_mesh_entity_t::set_model_source(alex::core_t *core,
-                                       geometry_rendering_t *geometry_rendering,
+                                       static_render_t *static_render,
                                        model_source_t &model_source) -> void {
   _static_model_ref = detail::create_model_ref(
-      core, geometry_rendering, model_source, model_source.root());
+      core, static_render, model_source, model_source.root());
 }
 
 } // namespace game

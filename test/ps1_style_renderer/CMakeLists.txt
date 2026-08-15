@@ -88,7 +88,9 @@ set(PROGRAM_SOURCES
   thirdparty/stb_image.cpp
   imgui_context.cpp
   static_resources.cpp
+  static_render.cpp
   resources.cpp
+  world.cpp
   resource_loader.cpp
   bitmap.cpp
   glm_transform_hierarchy.cpp

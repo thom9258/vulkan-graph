@@ -15,8 +15,8 @@
 #include "imgui_context.hpp"
 #include "ps1_style_renderer/resource_loader.hpp"
 #include "ps1_style_renderer/static_mesh_entity.hpp"
-#include "rendering.hpp"
 #include "resources.hpp"
+#include "static_render.hpp"
 #include "static_resources.hpp"
 #include "ui_game_manager.hpp"
 #include "ui_level_editor.hpp"
@@ -34,7 +34,7 @@ struct imgui_scene_info_t {
   alex::core_t *core{nullptr};
   alex::presenter_t *presenter{nullptr};
   sdl::window_t *window{nullptr};
-  geometry_rendering_t *geometry_rendering{nullptr};
+  static_render_t *static_render{nullptr};
   debugui_rendering_t *debugui_rendering{nullptr};
   imgui_context_t *imgui_context{nullptr};
   static_resources_t *static_resources{nullptr};
@@ -68,7 +68,7 @@ private:
   alex::core_t *_core{nullptr};
   alex::presenter_t *_presenter{nullptr};
   sdl::window_t *_window{nullptr};
-  geometry_rendering_t *_geometry_rendering{nullptr};
+  static_render_t *_static_render{nullptr};
   debugui_rendering_t *_debugui_rendering{nullptr};
   imgui_context_t *_imgui_context{nullptr};
   static_resources_t *_static_resources{nullptr};
@@ -120,18 +120,18 @@ imgui_scene::create_chest(std::string_view name,
                                    .indices_length;
 
   _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) -> void {
-    draw_info_t draw_info;
+    static_render_t::frame_uniform_t frame_uniform;
 
     alex::direct_memory_buffer_info_t direct_uniform_info;
     direct_uniform_info.physical_device = _core->physical_device();
     direct_uniform_info.device = _core->device();
     direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-    direct_uniform_info.memory_size = sizeof(draw_info);
+    direct_uniform_info.memory_size = sizeof(frame_uniform);
 
     for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
       static_mesh.direct_uniforms.emplace_back(direct_uniform_info);
-      std::memcpy(static_mesh.direct_uniforms.back().memory_ptr(), &draw_info,
-                  sizeof(draw_info));
+      std::memcpy(static_mesh.direct_uniforms.back().memory_ptr(),
+                  &frame_uniform, sizeof(frame_uniform));
     }
 
     for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
@@ -153,7 +153,7 @@ imgui_scene::create_chest(std::string_view name,
 
     auto allocated_frame_uniform_descriptorsets =
         _core->allocate_repeated_descriptorsets(
-            _geometry_rendering->setlayout.frame_uniform.get(),
+            _static_render->frame_uniform_setlayout(),
             vk::DescriptorType::eUniformBuffer, 2);
 
     static_mesh.uniform_descriptor_pool =
@@ -182,7 +182,7 @@ imgui_scene::create_chest(std::string_view name,
 
     auto allocated_diffuse_descriptorsets =
         _core->allocate_repeated_descriptorsets(
-            _geometry_rendering->setlayout.diffuse.get(),
+            _static_render->diffuse_setlayout(),
             vk::DescriptorType::eCombinedImageSampler, 2);
 
     static_mesh.diffuse_descriptor_pool =
@@ -217,7 +217,7 @@ imgui_scene::create_chest(std::string_view name,
 
 imgui_scene::imgui_scene(imgui_scene_info_t &info)
     : _core{info.core}, _presenter{info.presenter}, _window{info.window},
-      _geometry_rendering{info.geometry_rendering},
+      _static_render{info.static_render},
       _debugui_rendering{info.debugui_rendering},
       _imgui_context{info.imgui_context},
       _static_resources{info.static_resources} {
@@ -226,13 +226,14 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
     semaphore = _core->create_semaphore();
   }
 
-  _world.emplace(_window->window_extent());
-
   _resources.emplace(_core, "../asset_manifest.json");
+
+  _world.emplace(_window->window_extent(), _core, _static_render,
+                 &_resources.value());
 
   _ui_level_editor =
       ui_level_editor_t(&_world.value(), &_world->transform_hierarchy(),
-                        &(_resources.value()), _core, _geometry_rendering);
+                        &(_resources.value()), _core, _static_render);
 
   glm::mat4 translation =
       glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
@@ -258,7 +259,7 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
     model_matrix = glm::scale(translation, glm::vec3(0.05f));
     id = _world->transform_hierarchy().add(model_matrix);
     auto fox_entity = static_mesh_entity_t("fox", id.value());
-    fox_entity.set_model_source(_core, _geometry_rendering, *fox_source);
+    fox_entity.set_model_source(_core, _static_render, *fox_source);
     _world->add_entity(std::move(fox_entity));
   }
 
@@ -268,7 +269,7 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
     model_matrix = glm::scale(translation, glm::vec3(0.05f));
     id = _world->transform_hierarchy().add(model_matrix);
     auto buggy_entity = static_mesh_entity_t("corset", id.value());
-    buggy_entity.set_model_source(_core, _geometry_rendering, *buggy_source);
+    buggy_entity.set_model_source(_core, _static_render, *buggy_source);
     _world->add_entity(std::move(buggy_entity));
   }
 }
@@ -429,9 +430,10 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
 
               auto barrier =
                   vk::ImageMemoryBarrier{}
-                      .setImage(_geometry_rendering->attachments
-                                    .color[next_frame_info.flightframe]
-                                    .image())
+                      .setImage(
+                          _static_render
+                              ->color_attachments()[next_frame_info.flightframe]
+                              .image())
                       .setSubresourceRange(range)
                       .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
                       .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
@@ -456,11 +458,11 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
                       .setMipLevel(0);
               const std::array<vk::Offset3D, 2> src_offsets{
                   vk::Offset3D{0, 0, 0},
-                  vk::Offset3D{static_cast<std::int32_t>(
-                                   _geometry_rendering->_extent.width),
-                               static_cast<std::int32_t>(
-                                   _geometry_rendering->_extent.height),
-                               1}};
+                  vk::Offset3D{
+                      static_cast<std::int32_t>(_static_render->extent().width),
+                      static_cast<std::int32_t>(
+                          _static_render->extent().height),
+                      1}};
 
               auto dst_subresource =
                   vk::ImageSubresourceLayers{}
@@ -483,15 +485,16 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
                                     .setDstOffsets(dst_offsets)
                                     .setDstSubresource(dst_subresource);
 
-              commandbuffer.blitImage(_geometry_rendering->attachments
-                                          .color[next_frame_info.flightframe]
-                                          .image(),
-                                      vk::ImageLayout::eTransferSrcOptimal,
-                                      _debugui_rendering->attachments
-                                          .color[next_frame_info.flightframe]
-                                          .image(),
-                                      vk::ImageLayout::eTransferDstOptimal,
-                                      image_blit, vk::Filter::eNearest);
+              commandbuffer.blitImage(
+                  _static_render
+                      ->color_attachments()[next_frame_info.flightframe]
+                      .image(),
+                  vk::ImageLayout::eTransferSrcOptimal,
+                  _debugui_rendering->attachments
+                      .color[next_frame_info.flightframe]
+                      .image(),
+                  vk::ImageLayout::eTransferDstOptimal, image_blit,
+                  vk::Filter::eNearest);
             }
           }));
 
@@ -502,15 +505,15 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
         const auto render_area =
             vk::Rect2D{}
                 .setOffset(vk::Offset2D{}.setX(0.0f).setY(0.0f))
-                .setExtent(vk::Extent2D(_geometry_rendering->_extent.width,
-                                        _geometry_rendering->_extent.height));
+                .setExtent(vk::Extent2D(_static_render->extent().width,
+                                        _static_render->extent().height));
 
-        auto clearvalues = _geometry_rendering->renderpass->clearvalues();
+        auto clearvalues = _static_render->renderpass().clearvalues();
 
         const auto renderpass_begin_info =
             vk::RenderPassBeginInfo{}
-                .setRenderPass(_geometry_rendering->renderpass->renderpass())
-                .setFramebuffer(_geometry_rendering->renderpass->framebuffer(
+                .setRenderPass(_static_render->renderpass().renderpass())
+                .setFramebuffer(_static_render->renderpass().framebuffer(
                     next_frame_info.flightframe))
                 .setRenderArea(render_area)
                 .setClearValues(clearvalues);
@@ -522,29 +525,25 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
             vk::Viewport{}
                 .setX(0)
                 .setY(0)
-                .setWidth(
-                    static_cast<float>(_geometry_rendering->_extent.width))
-                .setHeight(
-                    static_cast<float>(_geometry_rendering->_extent.height))
+                .setWidth(static_cast<float>(_static_render->extent().width))
+                .setHeight(static_cast<float>(_static_render->extent().height))
                 .setMinDepth(0.0f)
                 .setMaxDepth(1.0f);
 
         auto scissor = vk::Rect2D{}.setOffset({0, 0}).setExtent(
-            {_geometry_rendering->_extent.width,
-             _geometry_rendering->_extent.height});
+            {_static_render->extent().width, _static_render->extent().height});
 
         commandbuffer.setViewport(0, viewport);
         commandbuffer.setScissor(0, scissor);
         commandbuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                   _geometry_rendering->pipeline->pipeline());
+                                   _static_render->pipeline().pipeline());
 
         for (entity_t &entity : _world->entities()) {
           if (auto *static_mesh = entity.get<static_mesh_entity_t>()) {
             static_mesh_entity_draw_info_t info;
             info.commandbuffer = commandbuffer;
             info.flightframe = next_frame_info.flightframe;
-            info.geometry_pipeline_layout =
-                _geometry_rendering->pipeline->layout();
+            info.geometry_pipeline_layout = _static_render->pipeline().layout();
             static_mesh->draw(info);
           }
         }

@@ -1,37 +1,14 @@
 #include "resources.hpp"
 
+#include "slurp_file.hpp"
+
 #include <alex/log.hpp>
 
 #include <glaze/json.hpp>
 
-#include <fstream>
-#include <print>
-#include <streambuf>
 #include <string>
 
 namespace game {
-
-namespace {
-
-constexpr auto slurp_file(std::filesystem::path path)
-    -> std::optional<std::string> {
-
-  std::ifstream t(path);
-  if (!t.is_open()) {
-    return std::nullopt;
-  }
-  std::string str;
-
-  t.seekg(0, std::ios::end);
-  str.reserve(t.tellg());
-  t.seekg(0, std::ios::beg);
-
-  str.assign((std::istreambuf_iterator<char>(t)),
-             std::istreambuf_iterator<char>());
-  return str;
-}
-
-} // namespace
 
 resources_t::resources_t(alex::core_t *core, std::filesystem::path manifest)
     : _core{core}, _manifest{manifest} {
