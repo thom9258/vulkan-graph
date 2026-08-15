@@ -17,7 +17,6 @@
 #include "ps1_style_renderer/static_mesh_entity.hpp"
 #include "resources.hpp"
 #include "static_render.hpp"
-#include "static_resources.hpp"
 #include "ui_game_manager.hpp"
 #include "ui_level_editor.hpp"
 #include "utility/transform_hierarchy.hpp"
@@ -37,7 +36,6 @@ struct imgui_scene_info_t {
   static_render_t *static_render{nullptr};
   debugui_rendering_t *debugui_rendering{nullptr};
   imgui_context_t *imgui_context{nullptr};
-  static_resources_t *static_resources{nullptr};
 };
 
 class imgui_scene : public scene::scene_t {
@@ -220,8 +218,7 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
     : _core{info.core}, _presenter{info.presenter}, _window{info.window},
       _static_render{info.static_render},
       _debugui_rendering{info.debugui_rendering},
-      _imgui_context{info.imgui_context},
-      _static_resources{info.static_resources} {
+      _imgui_context{info.imgui_context} {
 
   for (vk::UniqueSemaphore &semaphore : _rendergraph_semaphores) {
     semaphore = _core->create_semaphore();

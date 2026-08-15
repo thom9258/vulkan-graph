@@ -129,7 +129,7 @@ constexpr ui_level_editor_t::ui_level_editor_t(
     : _world{world}, _transform_hierarchy{transform_hierarchy},
       _resources{resources}, _core{core}, _static_render{static_render} {
 
-  _all_models = _resources->get_all_model_names();
+  _all_models = _resources->get_all_renderable_names();
 }
 
 constexpr auto ui_level_editor_t::update_input(std::span<SDL_Event>) -> void {
@@ -253,15 +253,15 @@ constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
         std::println("Added entity {}", _all_models[_add_entity_selected]);
       }
 
-      model_source_t *source =
-          _resources->get_model(_all_models[_add_entity_selected]);
-      if (source) {
+      renderable_t *renderable =
+          _resources->get_renderable(_all_models[_add_entity_selected]);
+      if (renderable != nullptr) {
         glm::mat4 translation =
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f));
         glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.05f));
         auto id = _world->transform_hierarchy().add(model_matrix);
         auto fox_entity = static_mesh_entity_t("fox", id.value());
-        fox_entity.set_model_source(_core, _static_render, *source);
+        fox_entity.set_renderable(_core, _static_render, *renderable);
         _world->add_entity(std::move(fox_entity));
         _selected = &_world->entities().back();
       }

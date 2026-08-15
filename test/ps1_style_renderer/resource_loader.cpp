@@ -221,6 +221,8 @@ auto material_t::name() -> std::string_view { return _name; }
 
 auto material_t::set_name(std::string_view name) -> void { _name = name; }
 
+auto material_t::diffuse() -> material_texture_t & { return _diffuse; }
+
 auto material_t::load_from_disk(renderable_load_from_disk_info_t &info,
                                 aiMaterial *aimaterial)
     -> std::optional<material_t> {
@@ -338,6 +340,22 @@ auto mesh_t::indices_length() -> std::uint32_t { return _indices_length; }
 
 auto mesh_t::material_name() -> std::optional<std::string> {
   return _material_name;
+}
+
+auto mesh_t::set_vertices(alex::memory_buffer_t vertices, std::uint32_t length)
+    -> void {
+  _vertices = std::move(vertices);
+  _vertices_length = length;
+}
+
+auto mesh_t::set_indices(alex::memory_buffer_t indices, std::uint32_t length)
+    -> void {
+  _indices = std::move(indices);
+  _indices_length = length;
+}
+
+auto mesh_t::set_material_name(std::string name) -> void {
+  _material_name = name;
 }
 
 auto mesh_t::load_from_disk(renderable_load_from_disk_info_t &info,
@@ -488,11 +506,17 @@ auto model_t::load_from_disk(renderable_load_from_disk_info_t &info,
 
   for (unsigned int i = 0; i < node->mNumMeshes; i++) {
     aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
-    model.add_mesh(load_mesh(info, scene, mesh));
+    auto loaded_mesh = mesh_t::load_from_disk(info, scene, mesh);
+    if (loaded_mesh.has_value()) {
+      model.add_mesh(std::move(*loaded_mesh));
+    }
 
     aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
     if (material != nullptr) {
-      materials.emplace_back(load_material(info, material));
+      auto loaded_material = material_t::load_from_disk(info, material);
+      if (loaded_material.has_value()) {
+        materials.push_back(std::move(*loaded_material));
+      }
     }
   }
 
@@ -556,10 +580,10 @@ auto renderable_t::load_from_disk(renderable_load_from_disk_info_t &info)
   }
 
   std::vector<material_t> materials;
-  std::optional<model_t> model =
-      load_model(info, materials, scene, scene->mRootNode);
-  if (model.has_value()) {
-    renderable_t model_source(info.path, std::move(*model));
+  auto loaded_model =
+      model_t::load_from_disk(info, materials, scene, scene->mRootNode);
+  if (loaded_model.has_value()) {
+    renderable_t model_source(info.path, std::move(*loaded_model));
 
     for (material_t &material : materials) {
       model_source.add_material(std::move(material));
@@ -590,6 +614,8 @@ auto renderable_t::root() -> model_t * {
   if (_root.has_value()) {
     return &_root.value();
   }
+
+  return nullptr;
 }
 
 auto renderable_t::add_material(material_t &&material) -> material_t * {
@@ -606,7 +632,7 @@ auto renderable_t::set_loadtime(chrono_time_point_t start,
 
 auto renderable_t::find_material(std::string_view name) -> material_t * {
   for (material_t &material : _materials) {
-    if (material.name == name) {
+    if (material.name() == name) {
       return &material;
     }
   }

@@ -185,13 +185,13 @@ auto world_t::load_world(std::filesystem::path path) -> void {
     auto transform_id = _transform_hierarchy->add(transform);
     static_mesh_entity_t entity(*name, *transform_id);
 
-    auto source = _resources->get_model(*model_source);
-    if (!source) {
+    auto renderable = _resources->get_renderable(*model_source);
+    if (!renderable) {
       ALEX_WARN("Could not find model source for name '{}'", *model_source);
       continue;
     }
 
-    entity.set_model_source(_core, _static_render, *source);
+    entity.set_renderable(_core, _static_render, *renderable);
     _entities.push_back(std::move(entity));
   }
 

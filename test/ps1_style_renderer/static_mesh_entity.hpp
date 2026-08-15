@@ -92,9 +92,9 @@ public:
 
   constexpr auto draw(static_mesh_entity_draw_info_t &info) -> void;
 
-  constexpr auto set_model_source(alex::core_t *core,
-                                  static_render_t *static_render,
-                                  model_source_t &model_source) -> void;
+  constexpr auto set_renderable(alex::core_t *core,
+                                static_render_t *static_render,
+                                renderable_t &renderable) -> void;
 
   std::optional<detail::static_model_ref_t> _static_model_ref;
 
@@ -214,13 +214,13 @@ namespace detail {
 
 constexpr auto create_ref_for_mesh(alex::core_t *core,
                                    static_render_t *static_render,
-                                   model_source_t &model_source, mesh_t &mesh)
+                                   renderable_t &renderable, mesh_t &mesh)
     -> static_mesh_ref_t {
   static_mesh_ref_t ref;
-  ref.vertices = &mesh.vertices.value();
-  ref.vertices_length = mesh.vertices_length;
-  ref.indices = &mesh.indices.value();
-  ref.indices_length = mesh.indices_length;
+  ref.vertices = mesh.vertices();
+  ref.vertices_length = mesh.vertices_length();
+  ref.indices = mesh.indices();
+  ref.indices_length = mesh.indices_length();
 
   core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) -> void {
     static_render_t::frame_uniform_t frame_uniform;
@@ -293,21 +293,16 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
     ref.diffuse_descriptorsets =
         std::move(allocated_diffuse_descriptorsets.sets);
 
-    if (mesh.material.has_value()) {
-      if (material_t *material = model_source.find_material(*mesh.material)) {
+    if (mesh.material_name().has_value()) {
+      if (material_t *material =
+              renderable.find_material(*mesh.material_name())) {
         for (vk::UniqueDescriptorSet &diffuse_set :
              ref.diffuse_descriptorsets) {
-          if (material->diffuse_sampler->get() == VK_NULL_HANDLE) {
-            ALEX_WARN("Mesh texture sampler for '{}' was not set by "
-                      "loader!",
-                      model_source.path().string());
-          }
-
           const auto image_info =
               vk::DescriptorImageInfo{}
                   .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-                  .setSampler(material->diffuse_sampler->get())
-                  .setImageView(material->diffuse->view());
+                  .setSampler(material->diffuse().sampler->get())
+                  .setImageView(material->diffuse().texture->view());
 
           const std::array<vk::WriteDescriptorSet, 1> writes{
               vk::WriteDescriptorSet{}
@@ -322,13 +317,13 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
                                               nullptr);
         }
       } else {
-        ALEX_WARN("Mesh inside model loaded from '{}' has texture but it could "
+        ALEX_WARN("Mesh '{}' has a specified texture but it could "
                   "not be found",
-                  model_source.path().string());
+                  mesh.material_name().value_or("<unknown-name>"));
       }
     } else {
-      ALEX_WARN("Mesh inside model loaded from '{}' has no texture",
-                model_source.path().string());
+      ALEX_WARN("Mesh '{}' has no texture",
+                mesh.material_name().value_or("<unknown-name>"));
     }
   });
 
@@ -337,19 +332,19 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
 
 constexpr auto create_model_ref(alex::core_t *core,
                                 static_render_t *static_render,
-                                model_source_t &model_source, model_t &model)
+                                renderable_t &renderable, model_t &model)
     -> detail::static_model_ref_t {
   detail::static_model_ref_t model_ref;
-  model_ref.name = model.name;
+  model_ref.name = model.name();
 
-  for (mesh_t &mesh : model.meshes) {
+  for (mesh_t &mesh : model.meshes()) {
     model_ref.meshes.push_back(
-        detail::create_ref_for_mesh(core, static_render, model_source, mesh));
+        detail::create_ref_for_mesh(core, static_render, renderable, mesh));
   }
 
-  for (model_t &child : model.children) {
+  for (model_t &child : model.children()) {
     model_ref.children.push_back(
-        create_model_ref(core, static_render, model_source, child));
+        create_model_ref(core, static_render, renderable, child));
   }
 
   return model_ref;
@@ -358,11 +353,15 @@ constexpr auto create_model_ref(alex::core_t *core,
 } // namespace detail
 
 constexpr auto
-static_mesh_entity_t::set_model_source(alex::core_t *core,
-                                       static_render_t *static_render,
-                                       model_source_t &model_source) -> void {
-  _static_model_ref = detail::create_model_ref(
-      core, static_render, model_source, model_source.root());
+static_mesh_entity_t::set_renderable(alex::core_t *core,
+                                     static_render_t *static_render,
+                                     renderable_t &renderable) -> void {
+  if (renderable.root() == nullptr) {
+    return;
+  }
+
+  _static_model_ref = detail::create_model_ref(core, static_render, renderable,
+                                               *renderable.root());
 }
 
 } // namespace game

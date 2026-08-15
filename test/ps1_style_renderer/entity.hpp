@@ -43,6 +43,12 @@ public:
         _underlying_entity);
   }
 
+  constexpr auto is_static_mesh() -> bool { return is<static_mesh_entity_t>(); }
+
+  constexpr auto static_mesh() -> static_mesh_entity_t * {
+    return get<static_mesh_entity_t>();
+  }
+
   template <typename t_underlying>
     requires requires(underlying_entity_t &entity) {
       { std::get<t_underlying>(entity) } -> std::same_as<t_underlying &>;

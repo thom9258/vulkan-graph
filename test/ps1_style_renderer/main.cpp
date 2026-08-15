@@ -20,8 +20,6 @@
 // #include "orbit_chest_scene.hpp"
 #include "imgui_scene.hpp"
 #include "ps1_style_renderer/imgui_context.hpp"
-#include "ps1_style_renderer/static_resources.hpp"
-
 
 #include <chrono>
 #include <iostream>
@@ -96,9 +94,6 @@ int main() {
 
   ALEX_INFO("Engine load time: {}ms", engine_init_timer.elapsed_ms());
 
-
-  game::static_resources_t static_resources(&core);
-
   /* ****************************************
    * Create Scenes
    */
@@ -122,7 +117,6 @@ int main() {
   imgui_scene_info.presenter = &presenter;
   imgui_scene_info.imgui_context = &imgui_context;
   imgui_scene_info.window = &window;
-  imgui_scene_info.static_resources = &static_resources;
 
   scenestack.put(std::make_unique<game::imgui_scene>(imgui_scene_info));
 
