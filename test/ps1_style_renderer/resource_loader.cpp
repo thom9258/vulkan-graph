@@ -17,37 +17,6 @@
 
 namespace game {
 
-load_error_t::load_error_t(code_t code, const char *error)
-    : _code{code}, _error{error} {}
-
-auto load_error_t::code() const -> code_t { return _code; }
-
-auto load_error_t::error() const -> std::string_view { return _error; }
-
-constexpr inline auto load_error_incomplete_info(const char *error)
-    -> load_error_t {
-  return load_error_t(load_error_t::code_t::incomplete_info, error);
-}
-
-constexpr inline auto load_error_invalid_path(const char *error)
-    -> load_error_t {
-  return load_error_t(load_error_t::code_t::invalid_path, error);
-}
-
-constexpr inline auto load_error_no_scene(const char *error) -> load_error_t {
-  return load_error_t(load_error_t::code_t::no_scene, error);
-}
-
-constexpr inline auto load_error_incomplete_scene(const char *error)
-    -> load_error_t {
-  return load_error_t(load_error_t::code_t::incomplete_scene, error);
-}
-
-constexpr inline auto load_error_missing_root(const char *error)
-    -> load_error_t {
-  return load_error_t(load_error_t::code_t::missing_root, error);
-}
-
 namespace util {
 
 template <typename TVertex>
@@ -248,27 +217,29 @@ constexpr auto create_texture_sampler(alex::core_t *core) {
   return core->device().createSamplerUnique(sampler_info);
 }
 
-constexpr auto load_material(model_load_info_t &info, aiMaterial *material)
-    -> material_t {
+auto material_t::name() -> std::string_view { return _name; }
 
+auto material_t::set_name(std::string_view name) -> void { _name = name; }
+
+auto material_t::load_from_disk(renderable_load_from_disk_info_t &info,
+                                aiMaterial *aimaterial)
+    -> std::optional<material_t> {
   std::filesystem::path const basedir = info.path.parent_path();
-  material_t out;
-  out.name = material->GetName().C_Str();
+  material_t material;
+  material.set_name(aimaterial->GetName().C_Str());
 
   std::optional<std::filesystem::path> diffuse_path =
-      util::get_first_diffuse_path(material);
+      util::get_first_diffuse_path(aimaterial);
 
   if (diffuse_path.has_value()) {
-
-    out.diffuse_properties.emplace();
-    material->Get(AI_MATKEY_TWOSIDED, out.diffuse_properties->two_sided);
-    material->Get(AI_MATKEY_OPACITY, out.diffuse_properties->opacity);
-    material->Get(AI_MATKEY_SHININESS, out.diffuse_properties->shininess);
-    material->Get(AI_MATKEY_TRANSPARENCYFACTOR,
-                  out.diffuse_properties->transparency);
+    aimaterial->Get(AI_MATKEY_TWOSIDED, material.diffuse().two_sided);
+    aimaterial->Get(AI_MATKEY_OPACITY, material.diffuse().opacity);
+    aimaterial->Get(AI_MATKEY_SHININESS, material.diffuse().shininess);
+    aimaterial->Get(AI_MATKEY_TRANSPARENCYFACTOR,
+                    material.diffuse().transparency);
 
     std::filesystem::path const path = basedir / diffuse_path.value();
-    const auto format = (out.diffuse_properties->opacity == 1.0f)
+    const auto format = (material.diffuse().opacity == 1.0f)
                             ? bitmap_format_t::rgb
                             : bitmap_format_t::rgba;
 
@@ -286,8 +257,9 @@ constexpr auto load_material(model_load_info_t &info, aiMaterial *material)
       texture_info.usage = vk::ImageUsageFlagBits::eSampled |
                            vk::ImageUsageFlagBits::eTransferDst;
 
-      out.diffuse.emplace(texture_info);
-      immediate_copy_bitmap_to_texture(info.core, out.diffuse.value(),
+      material.diffuse().texture.emplace(texture_info);
+      immediate_copy_bitmap_to_texture(info.core,
+                                       material.diffuse().texture.value(),
                                        diffuse_bitmap.value());
 
       const auto features = info.core->physical_device().getFeatures();
@@ -298,9 +270,9 @@ constexpr auto load_material(model_load_info_t &info, aiMaterial *material)
               : 1.0f;
 
       int u_mapmode{0};
-      material->Get(AI_MATKEY_MAPPINGMODE_U_DIFFUSE(0), u_mapmode);
+      aimaterial->Get(AI_MATKEY_MAPPINGMODE_U_DIFFUSE(0), u_mapmode);
       int v_mapmode{0};
-      material->Get(AI_MATKEY_MAPPINGMODE_V_DIFFUSE(0), v_mapmode);
+      aimaterial->Get(AI_MATKEY_MAPPINGMODE_V_DIFFUSE(0), v_mapmode);
 
       auto find_mapmode = [](int mapmode) -> vk::SamplerAddressMode {
         switch (mapmode) {
@@ -336,55 +308,66 @@ constexpr auto load_material(model_load_info_t &info, aiMaterial *material)
               .setMinLod(0.0f)
               .setMaxLod(0.0f);
 
-      out.diffuse_sampler =
+      material.diffuse().sampler =
           info.core->device().createSamplerUnique(sampler_info);
     }
   }
-  std::optional<std::filesystem::path> specular_path =
-      util::get_first_specular_path(material);
 
-  if (specular_path.has_value()) {
-    std::filesystem::path const path = basedir / specular_path.value();
-  }
-
-  std::optional<std::filesystem::path> ambient_path =
-      util::get_first_ambient_path(material);
-
-  if (ambient_path.has_value()) {
-    std::filesystem::path const path = basedir / ambient_path.value();
-  }
-
-  return out;
+  return material;
 }
 
-constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
-                         aiMesh *mesh) -> mesh_t {
-  std::vector<simple_vertex_t> vertices;
+auto mesh_t::vertices() -> alex::memory_buffer_t * {
+  if (_vertices.has_value()) {
+    return &_vertices.value();
+  }
 
-  vertices.reserve(mesh->mNumVertices);
-  for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+  return nullptr;
+}
+
+auto mesh_t::vertices_length() -> std::uint32_t { return _vertices_length; }
+
+auto mesh_t::indices() -> alex::memory_buffer_t * {
+  if (_indices.has_value()) {
+    return &_indices.value();
+  }
+
+  return nullptr;
+}
+
+auto mesh_t::indices_length() -> std::uint32_t { return _indices_length; }
+
+auto mesh_t::material_name() -> std::optional<std::string> {
+  return _material_name;
+}
+
+auto mesh_t::load_from_disk(renderable_load_from_disk_info_t &info,
+                            const aiScene *aiscene, aiMesh *aimesh)
+    -> std::optional<mesh_t> {
+  std::vector<simple_vertex_t> vertices;
+  vertices.reserve(aimesh->mNumVertices);
+  for (unsigned int i = 0; i < aimesh->mNumVertices; i++) {
     simple_vertex_t vertex{};
-    vertex.position[0] = mesh->mVertices[i].x;
-    vertex.position[1] = mesh->mVertices[i].y;
-    vertex.position[2] = mesh->mVertices[i].z;
+    vertex.position[0] = aimesh->mVertices[i].x;
+    vertex.position[1] = aimesh->mVertices[i].y;
+    vertex.position[2] = aimesh->mVertices[i].z;
 
     // Note we are guaranteed to have normals through our process flags
-    vertex.normal[0] = mesh->mNormals[i].x;
-    vertex.normal[1] = mesh->mNormals[i].y;
-    vertex.normal[2] = mesh->mNormals[i].z;
+    vertex.normal[0] = aimesh->mNormals[i].x;
+    vertex.normal[1] = aimesh->mNormals[i].y;
+    vertex.normal[2] = aimesh->mNormals[i].z;
 
-    if (mesh->mColors[0] != nullptr) {
-      vertex.color[0] = mesh->mColors[0][i].r;
-      vertex.color[1] = mesh->mColors[0][i].g;
-      vertex.color[2] = mesh->mColors[0][i].b;
+    if (aimesh->mColors[0] != nullptr) {
+      vertex.color[0] = aimesh->mColors[0][i].r;
+      vertex.color[1] = aimesh->mColors[0][i].g;
+      vertex.color[2] = aimesh->mColors[0][i].b;
     } else {
       vertex.color[0] = 1.0f;
       vertex.color[1] = 1.0f;
       vertex.color[2] = 1.0f;
     }
-    if (mesh->mTextureCoords[0] != nullptr) {
-      vertex.texcoord[0] = mesh->mTextureCoords[0][i].x;
-      vertex.texcoord[1] = mesh->mTextureCoords[0][i].y;
+    if (aimesh->mTextureCoords[0] != nullptr) {
+      vertex.texcoord[0] = aimesh->mTextureCoords[0][i].x;
+      vertex.texcoord[1] = aimesh->mTextureCoords[0][i].y;
     } else {
       vertex.texcoord[0] = 0.0f;
       vertex.texcoord[1] = 0.0f;
@@ -395,8 +378,8 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
 
   // NOTE we triangulate so we expect 3 indices per face
   std::vector<unsigned int> indices;
-  for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
-    aiFace face = mesh->mFaces[i];
+  for (unsigned int i = 0; i < aimesh->mNumFaces; i++) {
+    aiFace face = aimesh->mFaces[i];
     for (std::size_t j = 0; j < face.mNumIndices; j++) {
       indices.push_back(face.mIndices[j]);
     }
@@ -438,11 +421,11 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
 
   indices_buffer_info.memory_size = direct_indices_buffer_info.memory_size;
 
-  mesh_t result;
+  mesh_t mesh;
 
-  aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
+  aiMaterial *material = aiscene->mMaterials[aimesh->mMaterialIndex];
   if (material != nullptr) {
-    result.material = std::string(material->GetName().C_Str());
+    mesh.set_material_name(std::string(material->GetName().C_Str()));
   }
 
   info.core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) {
@@ -454,9 +437,9 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
         direct_vertices_buffer.memory_size();
     vertices_buffer_write_info.commandbuffer = commandbuffer;
 
-    result.vertices.emplace(vertices_buffer_info);
-    result.vertices.value().record_write(vertices_buffer_write_info);
-    result.vertices_length = vertices.size();
+    mesh.set_vertices(alex::memory_buffer_t(vertices_buffer_info),
+                      vertices.size());
+    mesh.vertices()->record_write(vertices_buffer_write_info);
 
     alex::memory_buffer_write_info_t indices_buffer_write_info;
     indices_buffer_write_info.physical_device = info.core->physical_device();
@@ -465,26 +448,47 @@ constexpr auto load_mesh(model_load_info_t &info, const aiScene *scene,
     indices_buffer_write_info.write_size = direct_indices_buffer.memory_size();
     indices_buffer_write_info.commandbuffer = commandbuffer;
 
-    result.indices.emplace(indices_buffer_info);
-    result.indices.value().record_write(indices_buffer_write_info);
-    result.indices_length = indices.size();
+    mesh.set_indices(alex::memory_buffer_t(indices_buffer_info),
+                     indices.size());
+    mesh.indices()->record_write(indices_buffer_write_info);
   });
 
-  return result;
+  return mesh;
 }
 
-constexpr auto load_model(model_load_info_t &info,
-                          std::vector<material_t> &materials,
-                          const aiScene *scene, aiNode *node)
-    -> std::optional<model_t> {
+auto model_t::name() -> std::string_view { return _name; }
 
+auto model_t::children() -> std::span<model_t> { return _children; }
+
+auto model_t::transform() -> glm::mat4 { return _transform; }
+
+auto model_t::meshes() -> std::span<mesh_t> { return _meshes; }
+
+auto model_t::set_name(std::string_view name) -> void { _name = name; }
+
+auto model_t::add_child(model_t model) -> void {
+  _children.push_back(std::move(model));
+}
+
+auto model_t::set_transform(glm::mat4 transform) -> void {
+  _transform = transform;
+}
+
+auto model_t::add_mesh(mesh_t mesh) -> void {
+  _meshes.push_back(std::move(mesh));
+}
+
+auto model_t::load_from_disk(renderable_load_from_disk_info_t &info,
+                             std::vector<material_t> &materials,
+                             const aiScene *scene, aiNode *node)
+    -> std::optional<model_t> {
   model_t model;
-  model.transform = util::to_glm(node->mTransformation);
-  model.name = std::string(node->mName.C_Str());
+  model.set_transform(util::to_glm(node->mTransformation));
+  model.set_name(std::string(node->mName.C_Str()));
 
   for (unsigned int i = 0; i < node->mNumMeshes; i++) {
     aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
-    model.meshes.emplace_back(load_mesh(info, scene, mesh));
+    model.add_mesh(load_mesh(info, scene, mesh));
 
     aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
     if (material != nullptr) {
@@ -494,52 +498,39 @@ constexpr auto load_model(model_load_info_t &info,
 
   for (unsigned int i = 0; i < node->mNumChildren; i++) {
     std::optional<model_t> child =
-        load_model(info, materials, scene, node->mChildren[i]);
-    if (child.has_value())
-      model.children.push_back(std::move(*child));
+        model_t::load_from_disk(info, materials, scene, node->mChildren[i]);
+
+    if (child.has_value()) {
+      model.add_child(std::move(*child));
+    }
   }
 
   return model;
 }
 
-model_source_t::model_source_t(std::filesystem::path path, model_t root)
+renderable_t::renderable_t(std::filesystem::path path, model_t root)
     : _path{path}, _root{std::move(root)} {}
 
-auto model_source_t::create(model_load_info_t &info)
-    -> std::expected<model_source_t, load_error_t> {
+auto renderable_t::load_from_disk(renderable_load_from_disk_info_t &info)
+    -> std::expected<renderable_t, std::string> {
 
   if (info.core == nullptr) {
-    return std::unexpected(load_error_incomplete_info("info.core == nullptr"));
+    return std::unexpected("info.core == nullptr");
   }
 
   if (!std::filesystem::exists(info.path)) {
-    return std::unexpected(load_error_invalid_path(info.path.string().c_str()));
+    return std::unexpected(
+        std::format("Invalid info.path '{}'", info.path.string()));
   }
 
   if (!std::filesystem::is_regular_file(info.path)) {
-    return std::unexpected(load_error_invalid_path(info.path.string().c_str()));
+    return std::unexpected(
+        std::format("info.path is not a file '{}'", info.path.string()));
   }
 
   chrono_time_point_t start = chrono_clock_t::now();
 
   std::uint32_t const load_flags = std::invoke([&info]() {
-
-#if 0
-    std::uint32_t flags = aiProcess_GenNormals | aiProcess_Triangulate ;
-
-    if (info.mesh.generate_smooth_normals) {
-      flags |= aiProcess_GenSmoothNormals;
-    }
-    if (info.mesh.limit_bone_weights) {
-      flags |= aiProcess_LimitBoneWeights;
-    }
-    if (info.mesh.fix_infacing_normals) {
-      //flags |= aiProcess_FixInfacingNormals;
-    }
-    if (info.mesh.flip_uvs) {
-      flags |= aiProcess_FlipUVs;
-    }
-#endif
     std::uint32_t constexpr flags =
         aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs |
         aiProcess_FixInfacingNormals | aiProcess_LimitBoneWeights;
@@ -550,23 +541,25 @@ auto model_source_t::create(model_load_info_t &info)
   Assimp::Importer importer;
   const aiScene *scene = importer.ReadFile(info.path, load_flags);
   if (!scene) {
-    return std::unexpected(load_error_no_scene(importer.GetErrorString()));
+    return std::unexpected(
+        std::format("Importer had no scene '{}'", importer.GetErrorString()));
   }
 
   if (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) {
     return std::unexpected(
-        load_error_incomplete_scene(importer.GetErrorString()));
+        std::format("Importer invalid scene '{}'", importer.GetErrorString()));
   }
 
   if (!scene->mRootNode) {
-    return std::unexpected(load_error_missing_root(importer.GetErrorString()));
+    return std::unexpected(
+        std::format("Importer Missing Root '{}'", importer.GetErrorString()));
   }
 
   std::vector<material_t> materials;
   std::optional<model_t> model =
       load_model(info, materials, scene, scene->mRootNode);
   if (model.has_value()) {
-    model_source_t model_source(info.path, std::move(*model));
+    renderable_t model_source(info.path, std::move(*model));
 
     for (material_t &material : materials) {
       model_source.add_material(std::move(material));
@@ -576,12 +569,15 @@ auto model_source_t::create(model_load_info_t &info)
     return model_source;
   }
 
-  return std::unexpected(load_error_missing_root(importer.GetErrorString()));
+  return std::unexpected(
+      std::format("Importer Load Error '{}'", importer.GetErrorString()));
 }
 
-auto model_source_t::path() const -> std::filesystem::path { return _path; }
+auto renderable_t::path() const -> std::optional<std::filesystem::path> {
+  return _path;
+}
 
-auto model_source_t::loadtime_seconds() const -> std::optional<double> {
+auto renderable_t::loadtime_seconds() const -> std::optional<double> {
   if (!_loadtime.has_value()) {
     return std::nullopt;
   }
@@ -590,21 +586,25 @@ auto model_source_t::loadtime_seconds() const -> std::optional<double> {
       .count();
 }
 
-auto model_source_t::root() -> model_t & { return _root; }
+auto renderable_t::root() -> model_t * {
+  if (_root.has_value()) {
+    return &_root.value();
+  }
+}
 
-auto model_source_t::add_material(material_t &&material) -> material_t * {
+auto renderable_t::add_material(material_t &&material) -> material_t * {
   _materials.push_back(std::move(material));
   return &_materials.back();
 }
 
-auto model_source_t::set_loadtime(chrono_time_point_t start,
-                                  chrono_time_point_t end) -> void {
+auto renderable_t::set_loadtime(chrono_time_point_t start,
+                                chrono_time_point_t end) -> void {
   _loadtime.emplace();
   _loadtime->start = start;
   _loadtime->end = end;
 }
 
-auto model_source_t::find_material(std::string_view name) -> material_t * {
+auto renderable_t::find_material(std::string_view name) -> material_t * {
   for (material_t &material : _materials) {
     if (material.name == name) {
       return &material;

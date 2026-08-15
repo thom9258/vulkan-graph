@@ -1,5 +1,6 @@
 #include "resources.hpp"
 
+#include "ps1_style_renderer/resource_loader.hpp"
 #include "slurp_file.hpp"
 
 #include <alex/log.hpp>
@@ -31,39 +32,37 @@ resources_t::resources_t(alex::core_t *core, std::filesystem::path manifest)
     auto path = model["path"].get<std::string>();
     if (name.has_value() && path.has_value()) {
 
-      model_load_info_t info;
+      renderable_load_from_disk_info_t info;
       info.core = _core;
       info.path = *path;
-      info.texture.filter = vk::Filter::eNearest;
+      info.texture_filter = vk::Filter::eNearest;
 
-      auto model_source = model_source_t::create(info);
+      auto model_source = renderable_t::load_from_disk(info);
       if (!model_source.has_value()) {
-        ALEX_ERROR(
-            "Model '{}' could not be loaded at path '{}', [error:{} code:{}]",
-            *name, *path, model_source.error().error(),
-            to_string(model_source.error().code()));
+        ALEX_ERROR("Model '{}' could not be loaded at path '{}', [error: {}]",
+                   *name, *path, model_source.error());
         continue;
       }
 
       ALEX_INFO("Loaded '{}' from path '{}' in {}s", *name, *path,
                 model_source->loadtime_seconds().value());
-      _models.insert({*name, std::move(*model_source)});
+      _renderables.insert({*name, std::move(*model_source)});
     }
   }
 }
 
-auto resources_t::get_model(std::string_view name) -> model_source_t * {
-  auto found = _models.find(std::string(name));
-  if (found == _models.end()) {
+auto resources_t::get_renderable(std::string_view name) -> renderable_t * {
+  auto found = _renderables.find(std::string(name));
+  if (found == _renderables.end()) {
     return nullptr;
   }
 
   return &found->second;
 }
 
-auto resources_t::get_all_model_names() -> std::vector<std::string> {
+auto resources_t::get_all_renderable_names() -> std::vector<std::string> {
   std::vector<std::string> names;
-  for (auto &[name, model_source] : _models) {
+  for (auto &[name, model_source] : _renderables) {
     names.push_back(name);
   }
 

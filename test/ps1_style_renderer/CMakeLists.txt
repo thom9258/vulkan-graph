@@ -87,7 +87,6 @@ set(PROGRAM_SOURCES
   # Project specific
   thirdparty/stb_image.cpp
   imgui_context.cpp
-  static_resources.cpp
   static_render.cpp
   resources.cpp
   world.cpp

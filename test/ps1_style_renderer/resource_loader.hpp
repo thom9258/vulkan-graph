@@ -22,116 +22,132 @@
 
 namespace game {
 
-struct material_properties_t {
+enum class model_load_flags_t {
+  generate_smooth_normals,
+  limit_bone_weights,
+  flip_uvs,
+  fix_infacing_normals
+};
+
+struct renderable_load_from_disk_info_t {
+  alex::core_t *core{nullptr};
+  std::filesystem::path path{};
+  std::vector<model_load_flags_t> model_load_flags;
+  vk::Filter texture_filter{vk::Filter::eLinear};
+};
+
+struct material_texture_t {
+  std::optional<alex::texture_t> texture;
+  std::optional<vk::UniqueSampler> sampler;
   bool two_sided{false};
   float transparency{0.0f};
   float shininess{0.0f};
   float opacity{1.0f};
 };
 
-struct material_t {
-  std::string name;
-
-  std::optional<alex::texture_t> diffuse;
-  std::optional<vk::UniqueSampler> diffuse_sampler;
-  std::optional<material_properties_t> diffuse_properties;
-
-  std::optional<alex::texture_t> specular;
-  std::optional<vk::UniqueSampler> specular_sampler;
-
-  std::optional<alex::texture_t> ambient;
-  std::optional<vk::UniqueSampler> ambient_sampler;
-};
-
-struct mesh_t {
-  std::optional<alex::memory_buffer_t> vertices;
-  std::uint32_t vertices_length{0};
-  std::optional<alex::memory_buffer_t> indices;
-  std::uint32_t indices_length{0};
-  std::optional<std::string> material;
-};
-
-struct model_t {
-  std::string name;
-  std::vector<model_t> children;
-  glm::mat4 transform;
-  std::vector<mesh_t> meshes;
-};
-
-struct model_load_info_t {
-  alex::core_t *core{nullptr};
-  std::filesystem::path path{};
-
-  struct {
-    bool generate_smooth_normals{false};
-    bool limit_bone_weights{true};
-    bool flip_uvs{true};
-    bool fix_infacing_normals{true};
-  } mesh;
-
-  struct {
-    vk::Filter filter{vk::Filter::eLinear};
-  } texture;
-};
-
-class load_error_t {
+class material_t {
 public:
-  enum class code_t {
-    incomplete_info,
-    invalid_path,
-    no_scene,
-    incomplete_scene,
-    missing_root,
-  };
+  static auto load_from_disk(renderable_load_from_disk_info_t &info,
+                             aiMaterial *material) -> std::optional<material_t>;
 
-  explicit load_error_t(code_t code, const char *error);
-  explicit load_error_t() = default;
+  auto name() -> std::string_view;
 
-  auto code() const -> code_t;
-  auto error() const -> std::string_view;
+  auto set_name(std::string_view name) -> void;
+
+  auto diffuse() -> material_texture_t &;
 
 private:
-  code_t _code;
-  std::string _error{""};
+  std::string _name;
+  material_texture_t _diffuse;
+
+  // std::optional<alex::texture_t> diffuse;
+  // std::optional<vk::UniqueSampler> diffuse_sampler;
+  // std::optional<material_properties_t> diffuse_properties;
+  //
+  // std::optional<alex::texture_t> specular;
+  // std::optional<vk::UniqueSampler> specular_sampler;
+  //
+  // std::optional<alex::texture_t> ambient;
+  // std::optional<vk::UniqueSampler> ambient_sampler;
 };
 
-constexpr auto to_string(load_error_t::code_t e) -> std::string_view {
-  switch (e) {
-    using enum load_error_t::code_t;
-  case incomplete_info:
-    return "incomplete info";
-  case invalid_path:
-    return "invalid path";
-  case no_scene:
-    return "no scene";
-  case incomplete_scene:
-    return "incomplete scene";
-  case missing_root:
-    return "missing root";
-  }
+class mesh_t {
+public:
+  static auto load_from_disk(renderable_load_from_disk_info_t &info,
+                             const aiScene *aiscene, aiMesh *aimesh)
+      -> std::optional<mesh_t>;
 
-  std::unreachable();
-}
+  auto vertices() -> alex::memory_buffer_t *;
+  auto vertices_length() -> std::uint32_t;
+  auto indices() -> alex::memory_buffer_t *;
+  auto indices_length() -> std::uint32_t;
+  auto material_name() -> std::optional<std::string>;
+  auto set_vertices(alex::memory_buffer_t vertices, std::uint32_t length)
+      -> void;
+  auto set_indices(alex::memory_buffer_t indices, std::uint32_t length) -> void;
+  auto set_material_name(std::string name) -> void;
 
-class model_source_t {
+private:
+  std::optional<alex::memory_buffer_t> _vertices;
+  std::uint32_t _vertices_length{0};
+  std::optional<alex::memory_buffer_t> _indices;
+  std::uint32_t _indices_length{0};
+  std::optional<std::string> _material_name;
+};
+
+class model_t {
+public:
+  static auto load_from_disk(renderable_load_from_disk_info_t &info,
+                             std::vector<material_t> &materials,
+                             const aiScene *scene, aiNode *node)
+      -> std::optional<model_t>;
+
+  model_t() = default;
+  model_t(const model_t &) = delete;
+  model_t(model_t &&) = default;
+  model_t &operator=(const model_t &) = delete;
+  model_t &operator=(model_t &&) = default;
+  ~model_t() = default;
+
+  auto name() -> std::string_view;
+  auto children() -> std::span<model_t>;
+  auto transform() -> glm::mat4;
+  auto meshes() -> std::span<mesh_t>;
+
+  auto set_name(std::string_view name) -> void;
+  auto add_child(model_t model) -> void;
+  auto set_transform(glm::mat4 transform) -> void;
+  auto add_mesh(mesh_t mesh) -> void;
+
+private:
+  std::string _name;
+  std::vector<model_t> _children;
+  glm::mat4 _transform;
+  std::vector<mesh_t> _meshes;
+};
+
+class renderable_t {
 public:
   using chrono_clock_t = std::chrono::high_resolution_clock;
   using chrono_time_point_t = std::chrono::time_point<chrono_clock_t>;
 
-  model_source_t(std::filesystem::path path, model_t root);
-  model_source_t(const model_source_t &) = delete;
-  model_source_t(model_source_t &&) = default;
-  model_source_t &operator=(const model_source_t &) = delete;
-  model_source_t &operator=(model_source_t &&) = default;
-  ~model_source_t() = default;
+  renderable_t(std::filesystem::path path, model_t root);
+  renderable_t(const renderable_t &) = delete;
+  renderable_t(renderable_t &&) = default;
+  renderable_t &operator=(const renderable_t &) = delete;
+  renderable_t &operator=(renderable_t &&) = default;
+  ~renderable_t() = default;
 
-  static auto create(model_load_info_t &info)
-      -> std::expected<model_source_t, load_error_t>;
+  static auto load_from_disk(renderable_load_from_disk_info_t &info)
+      -> std::expected<renderable_t, std::string>;
 
-  auto path() const -> std::filesystem::path;
-  auto loadtime_seconds() const -> std::optional<double>;
-  auto root() -> model_t &;
+  auto path() const -> std::optional<std::filesystem::path>;
+
+  auto root() -> model_t *;
+
   auto find_material(std::string_view name) -> material_t *;
+
+  auto loadtime_seconds() const -> std::optional<double>;
 
 private:
   auto add_material(material_t &&material) -> material_t *;
@@ -143,8 +159,8 @@ private:
   };
 
   std::optional<loadtime_t> _loadtime;
-  std::filesystem::path _path;
-  model_t _root;
+  std::optional<std::filesystem::path> _path;
+  std::optional<model_t> _root;
   std::vector<material_t> _materials;
 };
 
