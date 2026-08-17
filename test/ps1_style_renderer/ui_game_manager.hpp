@@ -40,7 +40,9 @@ constexpr auto ui_game_manager_t::draw() -> void {
     _should_close = true;
   }
 
-  ImGui::Checkbox("Level Selector", &_show_level_editor);
+  ImGui::Text("Level Editor");
+  ImGui::SameLine();
+  ImGui::Checkbox("##Level Editor", &_show_level_editor);
   ImGui::End();
 }
 

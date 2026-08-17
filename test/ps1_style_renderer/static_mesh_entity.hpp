@@ -132,7 +132,6 @@ constexpr auto
 static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
     -> void {
   if (!_static_model_ref.has_value()) {
-    ALEX_WARN("Asked to resource_update static mesh without model ref");
     return;
   }
 
@@ -171,7 +170,6 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
 constexpr auto static_mesh_entity_t::draw(static_mesh_entity_draw_info_t &info)
     -> void {
   if (!_static_model_ref.has_value()) {
-    ALEX_WARN("Asked to draw static mesh without model ref");
     return;
   }
 

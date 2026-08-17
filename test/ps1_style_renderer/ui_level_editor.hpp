@@ -4,6 +4,7 @@
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
 #include "include_glm.hpp"
+#include "ps1_style_renderer/static_mesh_entity.hpp"
 #include "resources.hpp"
 #include "static_render.hpp"
 #include "world.hpp"
@@ -235,50 +236,29 @@ constexpr auto ui_level_editor_t::draw_world_manager(world_t &world) -> void {
 constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
   // https://kahwei.dev/2022/06/20/imgui-tree-node/
   // https://ruby0x1.github.io/machinery_blog_archive/post/implementing-drag-and-drop-in-an-imgui/index.html
-  std::size_t id_index = 0;
-  std::vector<transform_id_t> roots = _transform_hierarchy->roots();
 
   ImGui::Separator();
-  ImGui::Checkbox("Entities", &_show_entity_hierarchy);
+  ImGui::Text("Entity Hierarchy");
+  ImGui::SameLine();
+  ImGui::Checkbox("##Entities", &_show_entity_hierarchy);
   if (_show_entity_hierarchy) {
-
-    std::vector<const char *> model_ptrs;
-    for (std::string &model : _all_models) {
-      model_ptrs.push_back(model.c_str());
-    }
-
     if (ImGui::Button("Add Static Object")) {
-      auto id = _transform_hierarchy->add(glm::mat4(1.0f));
+      glm::mat4 model_matrix = glm::mat4(1.0f);
+      auto id = _world->transform_hierarchy().add(model_matrix);
       if (id.has_value()) {
-        std::println("Added entity {}", _all_models[_add_entity_selected]);
-      }
-
-      renderable_t *renderable =
-          _resources->get_renderable(_all_models[_add_entity_selected]);
-      if (renderable != nullptr) {
-        glm::mat4 translation =
-            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f));
-        glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.05f));
-        auto id = _world->transform_hierarchy().add(model_matrix);
-        auto fox_entity = static_mesh_entity_t("fox", id.value());
-        fox_entity.set_renderable(_core, _static_render, *renderable);
-        _world->add_entity(std::move(fox_entity));
+        auto entity = static_mesh_entity_t("static-object", id.value());
+        _world->add_entity(std::move(entity));
         _selected = &_world->entities().back();
+        _add_entity_selected = 0;
       }
     }
 
-    ImGui::SameLine();
-    if (ImGui::Combo("##Add Entity List", &_add_entity_selected,
-                     model_ptrs.data(), model_ptrs.size())) {
-    }
-
+    std::size_t id_index = 0;
+    std::vector<transform_id_t> roots = _transform_hierarchy->roots();
     for (transform_id_t root : roots) {
       draw_entity(id_index, world.entities(), root);
     }
   }
-
-  //   ImGui::Separator();
-  //   ImGui::Text("Player");
 }
 
 constexpr auto ui_level_editor_t::draw_edit_mode() -> void {
@@ -299,7 +279,6 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
                                                 glm::mat4 projection) -> void {
   if (_selected != nullptr) {
     if (_transform_hierarchy->is_valid(_selected->transform_id())) {
-      ImGui::Text("Entity Details");
 
       std::array<char, 128> name_buffer;
       std::ranges::fill(name_buffer, '\0');
@@ -309,6 +288,8 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
         name_buffer[i] = name[i];
       }
 
+      ImGui::Text("Name");
+      ImGui::SameLine();
       if (ImGui::InputText("##Name", name_buffer.data(), name_buffer.size(),
                            ImGuiInputTextFlags_EnterReturnsTrue)) {
         _selected->set_name(name_buffer.data());
@@ -371,6 +352,34 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
       if (isUsingComponents || ImGuizmo::IsUsing()) {
         _transform_hierarchy->set_global_location(_selected->transform_id(),
                                                   transform.value());
+      }
+    }
+
+    if (auto *static_mesh = _selected->get<static_mesh_entity_t>()) {
+      static const char *none{"<none>"};
+      std::vector<const char *> model_ptrs;
+      model_ptrs.push_back(none);
+      for (std::string &model : _all_models) {
+        model_ptrs.push_back(model.c_str());
+      }
+
+      // TODO: Because we store a permanent _add_entity_selected index it is not
+      // properly reset, and therefore if we make an object with index 1, then a
+      // object ith index 3, and then select back to the object with index 1, we
+      // still show the name that the index 3 pointed towards.
+
+      ImGui::Text("Model");
+      ImGui::SameLine();
+      if (ImGui::Combo("##Model List", &_add_entity_selected, model_ptrs.data(),
+                       model_ptrs.size())) {
+        if (_add_entity_selected != 0) {
+          renderable_t *renderable =
+              _resources->get_renderable(_all_models[_add_entity_selected - 1]);
+
+          if (renderable != nullptr) {
+            static_mesh->set_renderable(_core, _static_render, *renderable);
+          }
+        }
       }
     }
   }

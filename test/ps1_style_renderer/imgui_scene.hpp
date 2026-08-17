@@ -232,44 +232,6 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
   _ui_level_editor =
       ui_level_editor_t(&_world.value(), &_world->transform_hierarchy(),
                         &(_resources.value()), _core, _static_render);
-
-  glm::mat4 translation =
-      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-  glm::mat4 model_matrix = glm::scale(translation, glm::vec3(0.02f));
-  auto id = _world->transform_hierarchy().add(model_matrix);
-
-// _world->add_entity(create_chest("chest 0", id.value()));
-//
-// translation = glm::translate(glm::mat4(1.0f), glm::vec3(2.5f, 0.0f, 0.0f));
-// model_matrix = glm::scale(translation, glm::vec3(0.02f));
-// id = _world->transform_hierarchy().add(model_matrix);
-// _world->add_entity(create_chest("chest 1", id.value()));
-//
-// translation = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, -2.5f));
-// model_matrix = glm::scale(translation, glm::vec3(0.02f));
-// id = _world->transform_hierarchy().add_child_global_location(
-//     model_matrix, _world->entities().back().transform_id());
-// _world->add_entity(create_chest("chest 2", id.value()));
-//
-// model_source_t *fox_source = _resources->get_model("fox");
-// if (fox_source) {
-//   translation = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0f, -2.0f));
-//   model_matrix = glm::scale(translation, glm::vec3(0.05f));
-//   id = _world->transform_hierarchy().add(model_matrix);
-//   auto fox_entity = static_mesh_entity_t("fox", id.value());
-//   fox_entity.set_model_source(_core, _static_render, *fox_source);
-//   _world->add_entity(std::move(fox_entity));
-// }
-//
-// model_source_t *buggy_source = _resources->get_model("corset");
-// if (buggy_source) {
-//   translation = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0f, -2.0f));
-//   model_matrix = glm::scale(translation, glm::vec3(0.05f));
-//   id = _world->transform_hierarchy().add(model_matrix);
-//   auto buggy_entity = static_mesh_entity_t("corset", id.value());
-//   buggy_entity.set_model_source(_core, _static_render, *buggy_source);
-//   _world->add_entity(std::move(buggy_entity));
-// }
 }
 
 constexpr imgui_scene::~imgui_scene() {}
