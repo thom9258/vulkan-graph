@@ -1,7 +1,7 @@
 #include "arena.hpp"
 
 namespace alex::memory {
-
+#if 0
 constexpr arena_checkpoint::arena_checkpoint(pointer_t ptr) noexcept
     : m_top{ptr} {}
 
@@ -67,5 +67,6 @@ auto arena::revert(arena_checkpoint checkpoint) noexcept -> bool {
 auto arena::top_ptr() const noexcept -> memory_pointer_t {
   return m_top;
 }
+#endif
 
 }; // namespace alex::memory

@@ -8,6 +8,7 @@
 
 namespace alex::memory {
 
+#if 0
 class arena_checkpoint {
 public:
   using pointer_t = std::uint8_t *;
@@ -113,5 +114,5 @@ private:
   memoryspan_t m_memory;
   memory_pointer_t m_top;
 };
-
+#endif
 } // namespace alex::memory

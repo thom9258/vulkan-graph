@@ -151,4 +151,9 @@ auto geometrypass_t::clearvalues() -> std::array<vk::ClearValue, 2> {
   return _clearvalues;
 }
 
+
+auto geometrypass_t::set_color_clearvalue(float r, float g, float b) -> void {
+	_clearvalues[0].setColor(vk::ClearColorValue{}.setFloat32({r, g, b, 1.0f}));
+}    
+
 } // namespace alex

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "arena.hpp"
 #include "core.hpp"
 
 #include <filesystem>
@@ -38,7 +37,7 @@ struct pipeline_info_t {
 
 class pipeline_t {
 public:
-  pipeline_t(pipeline_info_t &info, memory::arena &arena);
+  pipeline_t(pipeline_info_t &info);
 
   auto layout() -> vk::PipelineLayout;
   auto pipeline() -> vk::Pipeline;

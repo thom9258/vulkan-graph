@@ -62,13 +62,13 @@ pipeline_info_t &pipeline_info_t::add_vertex_input_attribute(
   return *this;
 }
 
-pipeline_t::pipeline_t(pipeline_info_t &info, memory::arena &arena) {
-  auto vertex_source = read_spirv_source(info.vertex_program_path, arena);
+pipeline_t::pipeline_t(pipeline_info_t &info) {
+  auto vertex_source = read_spirv_source(info.vertex_program_path);
 
   ALEX_ERROR_IF(vertex_source.empty(), "Could not load vertex source: [{}]",
                 info.vertex_program_path.string())
 
-  auto fragment_source = read_spirv_source(info.fragment_program_path, arena);
+  auto fragment_source = read_spirv_source(info.fragment_program_path);
   ALEX_ERROR_IF(fragment_source.empty(), "Could not load fragment source: [{}]",
                 info.fragment_program_path.string())
 

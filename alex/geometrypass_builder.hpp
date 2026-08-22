@@ -40,6 +40,8 @@ public:
   auto extent() -> vk::Extent3D;
   auto clearvalues() -> std::array<vk::ClearValue, 2>;
 
+  auto set_color_clearvalue(float r, float g, float b) -> void;
+
 private:
   vk::UniqueRenderPass _renderpass;
   flightframe_array_t<vk::UniqueFramebuffer> _framebuffers;

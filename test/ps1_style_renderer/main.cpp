@@ -17,9 +17,8 @@
 #include "../utility/timer.hpp"
 
 #include "bitmap.hpp"
-// #include "orbit_chest_scene.hpp"
 #include "imgui_scene.hpp"
-#include "ps1_style_renderer/imgui_context.hpp"
+#include "ui/imgui_context.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -33,18 +32,11 @@
 
 using namespace std::literals;
 
-std::size_t constexpr mb = 1'000'000;
-
 int main() {
   utility::timer_t engine_init_timer;
 
-  constexpr std::size_t total_memory{10 * mb};
-  std::vector<std::uint8_t> memory(total_memory);
-  alex::memory::arena init_arena(memory);
-
-
   sdl::window_info_t window_info{};
-  window_info.name = "ps1_game";
+  window_info.name = "world-builder";
   window_info.x = -1;
   window_info.y = -1;
   window_info.width = 320 * 4;
@@ -67,8 +59,8 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
-  vk::Extent3D render_extent(static_cast<std::int32_t>(window_extent.width / 4),
-                             static_cast<std::int32_t>(window_extent.height / 4),
+  vk::Extent3D render_extent(static_cast<std::int32_t>(window_extent.width),
+                             static_cast<std::int32_t>(window_extent.height),
                              1);
 
   alex::core_t core(core_info);
