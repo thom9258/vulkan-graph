@@ -12,13 +12,14 @@
 #include "entity.hpp"
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
-#include "imgui_context.hpp"
 #include "ps1_style_renderer/resource_loader.hpp"
 #include "ps1_style_renderer/static_mesh_entity.hpp"
 #include "resources.hpp"
 #include "static_render.hpp"
-#include "ui_game_manager.hpp"
-#include "ui_level_editor.hpp"
+#include "ui/entity_hierarchy.hpp"
+#include "ui/game_manager.hpp"
+#include "ui/imgui_context.hpp"
+#include "ui/level_settings.hpp"
 #include "utility/transform_hierarchy.hpp"
 #include "world.hpp"
 
@@ -58,10 +59,6 @@ public:
 
   constexpr auto update_render() -> scene::status_t;
 
-// constexpr auto create_chest(std::string_view name,
-//                             transform_hierarchy::transform_id_t transform_id)
-//     -> static_mesh_entity_t;
-
 private:
   alex::core_t *_core{nullptr};
   alex::presenter_t *_presenter{nullptr};
@@ -76,143 +73,10 @@ private:
   std::optional<resources_t> _resources;
   std::optional<world_t> _world;
 
-  game::ui_level_editor_t _ui_level_editor;
-  game::ui_game_manager_t _ui_game_manager;
+  ui::entity_hierarchy_t _entity_hierarchy;
+  ui::game_manager_t _game_manager;
+  ui::level_settings_t _level_settings;
 };
-
-#if 0
-constexpr auto
-imgui_scene::create_chest(std::string_view name,
-                          transform_hierarchy::transform_id_t transform_id)
-    -> static_mesh_entity_t {
-  static_mesh_entity_t chest(name, transform_id);
-
-  // TODO: this is not a good way to do things
-  chest._static_model_ref.emplace();
-  chest._static_model_ref->meshes.emplace_back();
-  detail::static_mesh_ref_t &static_mesh =
-      chest._static_model_ref->meshes.back();
-
-  static_mesh.vertices = &_static_resources->chest_model()
-                              ->root()
-                              .children[0]
-                              .meshes[0]
-                              .vertices.value();
-
-  static_mesh.vertices_length = _static_resources->chest_model()
-                                    ->root()
-                                    .children[0]
-                                    .meshes[0]
-                                    .vertices_length;
-
-  static_mesh.indices = &_static_resources->chest_model()
-                             ->root()
-                             .children[0]
-                             .meshes[0]
-                             .indices.value();
-
-  static_mesh.indices_length = _static_resources->chest_model()
-                                   ->root()
-                                   .children[0]
-                                   .meshes[0]
-                                   .indices_length;
-
-  _core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) -> void {
-    static_render_t::frame_uniform_t frame_uniform;
-
-    alex::direct_memory_buffer_info_t direct_uniform_info;
-    direct_uniform_info.physical_device = _core->physical_device();
-    direct_uniform_info.device = _core->device();
-    direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-    direct_uniform_info.memory_size = sizeof(frame_uniform);
-
-    for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
-      static_mesh.direct_uniforms.emplace_back(direct_uniform_info);
-      std::memcpy(static_mesh.direct_uniforms.back().memory_ptr(),
-                  &frame_uniform, sizeof(frame_uniform));
-    }
-
-    for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
-      alex::memory_buffer_info_t uniform_info;
-      uniform_info.physical_device = _core->physical_device();
-      uniform_info.device = _core->device();
-      uniform_info.buffer_type = alex::memory_buffer_type_t::uniform;
-      uniform_info.memory_size = direct_uniform_info.memory_size;
-      static_mesh.uniforms.emplace_back(uniform_info);
-
-      alex::memory_buffer_write_info_t write_info;
-      write_info.physical_device = _core->physical_device();
-      write_info.device = _core->device();
-      write_info.direct = &static_mesh.direct_uniforms[i];
-      write_info.write_size = static_mesh.uniforms.back().memory_size();
-      write_info.commandbuffer = commandbuffer;
-      static_mesh.uniforms.back().record_write(write_info);
-    }
-
-    auto allocated_frame_uniform_descriptorsets =
-        _core->allocate_repeated_descriptorsets(
-            _static_render->frame_uniform_setlayout(),
-            vk::DescriptorType::eUniformBuffer, 2);
-
-    static_mesh.uniform_descriptor_pool =
-        std::move(allocated_frame_uniform_descriptorsets.pool);
-    static_mesh.uniform_descriptorsets =
-        std::move(allocated_frame_uniform_descriptorsets.sets);
-
-    for (auto [i, uniform] : static_mesh.uniforms | std::views::enumerate) {
-      const auto buffer_info = vk::DescriptorBufferInfo{}
-                                   .setBuffer(uniform.buffer())
-                                   .setOffset(0)
-                                   .setRange(uniform.memory_size());
-
-      const std::array<vk::WriteDescriptorSet, 1> writes{
-          vk::WriteDescriptorSet{}
-              .setDstBinding(0)
-              .setDstArrayElement(0)
-              .setDstSet(static_mesh.uniform_descriptorsets[i].get())
-              .setDescriptorCount(1)
-              .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-              .setBufferInfo(buffer_info)};
-
-      _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
-                                           nullptr);
-    }
-
-    auto allocated_diffuse_descriptorsets =
-        _core->allocate_repeated_descriptorsets(
-            _static_render->diffuse_setlayout(),
-            vk::DescriptorType::eCombinedImageSampler, 2);
-
-    static_mesh.diffuse_descriptor_pool =
-        std::move(allocated_diffuse_descriptorsets.pool);
-    static_mesh.diffuse_descriptorsets =
-        std::move(allocated_diffuse_descriptorsets.sets);
-
-    for (vk::UniqueDescriptorSet &diffuse_set :
-         static_mesh.diffuse_descriptorsets) {
-      const auto image_info =
-          vk::DescriptorImageInfo{}
-              .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-              .setSampler(_static_resources->chest_texture_sampler())
-              .setImageView(_static_resources->chest_texture()->view());
-
-      const std::array<vk::WriteDescriptorSet, 1> writes{
-          vk::WriteDescriptorSet{}
-              .setDstBinding(0)
-              .setDstArrayElement(0)
-              .setDstSet(diffuse_set.get())
-              .setDescriptorCount(1)
-              .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-              .setImageInfo(image_info)};
-
-      _core->device().updateDescriptorSets(writes.size(), writes.data(), 0,
-                                           nullptr);
-    }
-  });
-
-  return chest;
-}
-#endif
 
 imgui_scene::imgui_scene(imgui_scene_info_t &info)
     : _core{info.core}, _presenter{info.presenter}, _window{info.window},
@@ -229,9 +93,12 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
   _world.emplace(_window->window_extent(), _core, _static_render,
                  &_resources.value());
 
-  _ui_level_editor =
-      ui_level_editor_t(&_world.value(), &_world->transform_hierarchy(),
-                        &(_resources.value()), _core, _static_render);
+  _entity_hierarchy =
+      ui::entity_hierarchy_t(&_world.value(), &_world->transform_hierarchy(),
+                             &(_resources.value()), _core, _static_render);
+
+
+  _level_settings = ui::level_settings_t(&_world.value());
 }
 
 constexpr imgui_scene::~imgui_scene() {}
@@ -281,12 +148,12 @@ constexpr auto imgui_scene::update_input() -> scene::status_t {
     }
   }
 
-  _ui_game_manager.update_input(events);
-  if (_ui_game_manager.should_close()) {
+  _game_manager.update_input(events);
+  if (_game_manager.should_close()) {
     return scene::status_t::shutdown;
   }
 
-  _ui_level_editor.update_input(events);
+  _entity_hierarchy.update_input(events);
 
   _world->update_input(events);
 
@@ -549,11 +416,20 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
             commandbuffer.setViewport(0, viewport);
             commandbuffer.setScissor(0, scissor);
 
-            _ui_game_manager.draw();
+            _game_manager.draw();
 
-            if (_ui_game_manager.show_level_editor()) {
-              _ui_level_editor.draw(_world.value());
+            if (_game_manager.show_entity_hierarchy()) {
+              _entity_hierarchy.draw(_world.value());
             }
+
+            if (_game_manager.show_level_settings()) {
+              _level_settings.draw();
+              _static_render->renderpass().set_color_clearvalue(
+                  _world->background_color().r(),
+                  _world->background_color().g(),
+                  _world->background_color().b());
+            }
+
 
             ImGui::Render();
             ImDrawData *draw_data = ImGui::GetDrawData();

@@ -38,6 +38,7 @@ struct static_mesh_ref_t {
 
 struct static_model_ref_t {
   std::string name;
+  glm::mat4 transform;
   std::vector<static_mesh_ref_t> meshes;
   std::vector<static_model_ref_t> children;
 };
@@ -92,7 +93,8 @@ public:
 
   constexpr auto draw(static_mesh_entity_draw_info_t &info) -> void;
 
-  constexpr auto set_renderable(alex::core_t *core,
+  constexpr auto renderable_name() -> std::optional<std::string_view>;
+  constexpr auto set_renderable(std::string_view name, alex::core_t *core,
                                 static_render_t *static_render,
                                 renderable_t &renderable) -> void;
 
@@ -100,6 +102,7 @@ public:
 
 private:
   std::string _name{"unnamed-static-mesh-entity"};
+  std::optional<std::string> _renderable_name;
   transform_hierarchy::transform_id_t _transform_id{
       transform_hierarchy::invalid_transform_id};
 };
@@ -137,34 +140,35 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
 
   auto model_matrix = info.transform_hierarchy->global_location(_transform_id);
 
-  auto update_model = [&](auto self, detail::static_model_ref_t &ref) -> void {
-    for (detail::static_mesh_ref_t &ref : ref.meshes) {
+  auto update_model = [&](auto self, detail::static_model_ref_t &model_ref,
+                          glm::mat4 parent_transform) -> void {
+    const glm::mat4 transform = parent_transform * model_ref.transform;
+    for (detail::static_mesh_ref_t &mesh_ref : model_ref.meshes) {
       static_render_t::frame_uniform_t frame_uniform;
       frame_uniform.view = info.camera_view;
       frame_uniform.projection = info.camera_projection;
+      frame_uniform.model = transform;
 
       // TODO: must calculate parent to child matrix relationship
       frame_uniform.model = model_matrix.value();
-      std::memcpy(ref.direct_uniforms[info.flightframe].memory_ptr(),
+      std::memcpy(mesh_ref.direct_uniforms[info.flightframe].memory_ptr(),
                   &frame_uniform, sizeof(frame_uniform));
 
       alex::memory_buffer_write_info_t write_info;
       write_info.physical_device = info.physical_device;
       write_info.device = info.device;
-      write_info.direct = &ref.direct_uniforms[info.flightframe];
-      write_info.write_size = ref.uniforms[info.flightframe].memory_size();
+      write_info.direct = &mesh_ref.direct_uniforms[info.flightframe];
+      write_info.write_size = mesh_ref.uniforms[info.flightframe].memory_size();
       write_info.commandbuffer = info.commandbuffer;
-      ref.uniforms[info.flightframe].record_write(write_info);
+      mesh_ref.uniforms[info.flightframe].record_write(write_info);
     }
 
-    for (detail::static_model_ref_t &child : ref.children) {
-      self(self, child);
+    for (detail::static_model_ref_t &child : model_ref.children) {
+      self(self, child, transform);
     }
   };
 
-  update_model(update_model, _static_model_ref.value());
-
-  // TODO: do children aswell
+  update_model(update_model, _static_model_ref.value(), glm::mat4(1.0f));
 }
 
 constexpr auto static_mesh_entity_t::draw(static_mesh_entity_draw_info_t &info)
@@ -334,6 +338,7 @@ constexpr auto create_model_ref(alex::core_t *core,
     -> detail::static_model_ref_t {
   detail::static_model_ref_t model_ref;
   model_ref.name = model.name();
+  model_ref.transform = model.transform();
 
   for (mesh_t &mesh : model.meshes()) {
     model_ref.meshes.push_back(
@@ -351,15 +356,25 @@ constexpr auto create_model_ref(alex::core_t *core,
 } // namespace detail
 
 constexpr auto
-static_mesh_entity_t::set_renderable(alex::core_t *core,
+static_mesh_entity_t::set_renderable(std::string_view name, alex::core_t *core,
                                      static_render_t *static_render,
                                      renderable_t &renderable) -> void {
   if (renderable.root() == nullptr) {
     return;
   }
 
+  _renderable_name = name;
   _static_model_ref = detail::create_model_ref(core, static_render, renderable,
                                                *renderable.root());
+}
+
+constexpr auto static_mesh_entity_t::renderable_name()
+    -> std::optional<std::string_view> {
+  if (_renderable_name.has_value()) {
+    return *_renderable_name;
+  }
+
+  return std::nullopt;
 }
 
 } // namespace game

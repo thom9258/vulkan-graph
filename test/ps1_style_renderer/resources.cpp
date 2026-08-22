@@ -5,7 +5,7 @@
 
 #include <alex/log.hpp>
 
-#include <glaze/json.hpp>
+#include "json.hpp"
 
 #include <string>
 
@@ -42,6 +42,12 @@ resources_t::resources_t(alex::core_t *core, std::filesystem::path manifest)
         ALEX_ERROR("Model '{}' could not be loaded at path '{}', [error: {}]",
                    *name, *path, model_source.error());
         continue;
+      }
+
+      auto scale = serialization::utility::read_vec3(model, "scale");
+      if (scale.has_value() && model_source->root() != nullptr) {
+        const auto original = model_source->root()->transform();
+        model_source->root()->set_transform(glm::scale(original, *scale));
       }
 
       ALEX_INFO("Loaded '{}' from path '{}' in {}s", *name, *path,

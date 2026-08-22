@@ -151,8 +151,7 @@ static_render_t::static_render_t(alex::core_t &core, vk::Extent3D extent)
   std::size_t constexpr mb = 1'000'000;
   constexpr std::size_t total_memory{10 * mb};
   std::vector<std::uint8_t> memory(total_memory);
-  alex::memory::arena init_arena(memory);
-  _pipeline.emplace(geometry_pipeline_info, init_arena);
+  _pipeline.emplace(geometry_pipeline_info);
 }
 
 auto static_render_t::extent() const -> vk::Extent3D { return _extent; }

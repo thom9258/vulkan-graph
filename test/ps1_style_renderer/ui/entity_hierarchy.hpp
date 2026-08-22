@@ -1,16 +1,18 @@
 #pragma once
 
+#include "../glm_transform_hierarchy.hpp"
+#include "../include_glm.hpp"
+#include "../resources.hpp"
+#include "../static_mesh_entity.hpp"
+#include "../static_render.hpp"
+#include "../world.hpp"
 #include "ImGuizmo.h"
-#include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
-#include "include_glm.hpp"
-#include "ps1_style_renderer/static_mesh_entity.hpp"
-#include "resources.hpp"
-#include "static_render.hpp"
-#include "world.hpp"
 
 #include "imgui_context.hpp"
 #include "utility/transform_hierarchy.hpp"
+
+#include "consteval_string.hpp"
 
 #include <SDL_keycode.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -22,15 +24,15 @@
 #include <string>
 #include <string_view>
 
-namespace game {
+namespace game::ui {
 
-class ui_level_editor_t {
+class entity_hierarchy_t {
 public:
   using transform_id_t = transform_hierarchy::transform_id_t;
 
-  constexpr ui_level_editor_t() = default;
+  constexpr entity_hierarchy_t() = default;
 
-  constexpr explicit ui_level_editor_t(
+  constexpr explicit entity_hierarchy_t(
       world_t *world, glm_transform_hierarchy *transform_hierarchy,
       resources_t *resources, alex::core_t *core,
       static_render_t *static_render);
@@ -58,16 +60,15 @@ public:
       -> entity_t *;
 
 private:
+  world_t *_world{nullptr};
   glm_transform_hierarchy *_transform_hierarchy{nullptr};
   resources_t *_resources{nullptr};
-  world_t *_world{nullptr};
   alex::core_t *_core{nullptr};
   static_render_t *_static_render{nullptr};
 
   std::optional<std::string> _world_path_str;
 
   std::vector<std::string> _all_models;
-  int _add_entity_selected{0};
 
   bool _show_entity_hierarchy{true};
 
@@ -124,7 +125,7 @@ constexpr auto mode_to_index(ImGuizmo::MODE mode) -> int {
   return 0;
 }
 
-constexpr ui_level_editor_t::ui_level_editor_t(
+constexpr entity_hierarchy_t::entity_hierarchy_t(
     world_t *world, glm_transform_hierarchy *transform_hierarchy,
     resources_t *resources, alex::core_t *core, static_render_t *static_render)
     : _world{world}, _transform_hierarchy{transform_hierarchy},
@@ -133,7 +134,7 @@ constexpr ui_level_editor_t::ui_level_editor_t(
   _all_models = _resources->get_all_renderable_names();
 }
 
-constexpr auto ui_level_editor_t::update_input(std::span<SDL_Event>) -> void {
+constexpr auto entity_hierarchy_t::update_input(std::span<SDL_Event>) -> void {
 
   if (!ImGui::IsAnyItemActive()) {
     if (ImGui::IsKeyDown(ImGuiMod_Alt)) {
@@ -151,8 +152,8 @@ constexpr auto ui_level_editor_t::update_input(std::span<SDL_Event>) -> void {
   }
 }
 
-constexpr auto ui_level_editor_t::find(std::span<entity_t> entities,
-                                       transform_id_t id) -> entity_t * {
+constexpr auto entity_hierarchy_t::find(std::span<entity_t> entities,
+                                        transform_id_t id) -> entity_t * {
   for (entity_t &entity : entities) {
     if (entity.transform_id() == id) {
       return &entity;
@@ -162,9 +163,9 @@ constexpr auto ui_level_editor_t::find(std::span<entity_t> entities,
   return nullptr;
 }
 
-constexpr auto ui_level_editor_t::draw_entity(std::size_t &id_index,
-                                              std::span<entity_t> entities,
-                                              transform_id_t id) -> void {
+constexpr auto entity_hierarchy_t::draw_entity(std::size_t &id_index,
+                                               std::span<entity_t> entities,
+                                               transform_id_t id) -> void {
 
   static constexpr const std::string_view drag_id{"DRAGGED ENTITY"};
   entity_t *entity = find(entities, id);
@@ -214,14 +215,19 @@ constexpr auto ui_level_editor_t::draw_entity(std::size_t &id_index,
   id_index++;
 }
 
-constexpr auto ui_level_editor_t::draw_world_manager(world_t &world) -> void {
+constexpr auto entity_hierarchy_t::draw_world_manager(world_t &world) -> void {
   thread_local static std::array<char, 512> world_path_buffer;
   ImGui::InputText("##world manager path", world_path_buffer.data(),
                    world_path_buffer.size(),
                    ImGuiInputTextFlags_EnterReturnsTrue);
 
-  auto world_path = std::filesystem::path(
-      std::string(world_path_buffer.data(), world_path_buffer.size()));
+  auto not_end = [](char ch) { return ch != '\0'; };
+
+  std::string world_path_str =
+      world_path_buffer | std::views::take_while(not_end) |
+      std::views::as_rvalue | std::ranges::to<std::string>();
+
+  auto world_path = std::filesystem::path(world_path_str);
 
   if (ImGui::Button("Save")) {
     world.save_world(world_path);
@@ -233,10 +239,9 @@ constexpr auto ui_level_editor_t::draw_world_manager(world_t &world) -> void {
   }
 }
 
-constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
+constexpr auto entity_hierarchy_t::draw_hierarchy(world_t &world) -> void {
   // https://kahwei.dev/2022/06/20/imgui-tree-node/
   // https://ruby0x1.github.io/machinery_blog_archive/post/implementing-drag-and-drop-in-an-imgui/index.html
-
   ImGui::Separator();
   ImGui::Text("Entity Hierarchy");
   ImGui::SameLine();
@@ -249,7 +254,6 @@ constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
         auto entity = static_mesh_entity_t("static-object", id.value());
         _world->add_entity(std::move(entity));
         _selected = &_world->entities().back();
-        _add_entity_selected = 0;
       }
     }
 
@@ -261,7 +265,7 @@ constexpr auto ui_level_editor_t::draw_hierarchy(world_t &world) -> void {
   }
 }
 
-constexpr auto ui_level_editor_t::draw_edit_mode() -> void {
+constexpr auto entity_hierarchy_t::draw_edit_mode() -> void {
   ImGui::Text("Operation");
   ImGui::SameLine();
   if (ImGui::Combo("##Operation", &_selected_operation, operations,
@@ -275,8 +279,24 @@ constexpr auto ui_level_editor_t::draw_edit_mode() -> void {
   }
 }
 
-constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
-                                                glm::mat4 projection) -> void {
+namespace {
+
+template <consteval_string name>
+constexpr auto transform_component(glm::vec3 vec, float speed) -> bool {
+  ImGui::PushItemWidth(-1.0f);
+  constexpr auto label = consteval_string("##") + name;
+  ImGui::Text("%s", name.c_str());
+  ImGui::SameLine();
+  bool const used =
+      ImGui::DragFloat3(label.c_str(), glm::value_ptr(vec), speed);
+  ImGui::PopItemWidth();
+  return used;
+}
+
+} // namespace
+
+constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
+                                                 glm::mat4 projection) -> void {
   if (_selected != nullptr) {
     if (_transform_hierarchy->is_valid(_selected->transform_id())) {
 
@@ -295,46 +315,37 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
         _selected->set_name(name_buffer.data());
       }
 
-      auto transform =
+      auto global_transform =
           _transform_hierarchy->global_location(_selected->transform_id());
 
-      float translation[3];
-      float rotation[3];
-      float scale[3];
-      ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(transform.value()),
-                                            translation, rotation, scale);
+      glm::vec3 translation(0.0f);
+      glm::vec3 rotation(0.0f);
+      glm::vec3 scale(1.0f);
+      ImGuizmo::DecomposeMatrixToComponents(
+          glm::value_ptr(global_transform.value()), glm::value_ptr(translation),
+          glm::value_ptr(rotation), glm::value_ptr(scale));
 
-      ImGui::PushItemWidth(-1.0f);
-      ImGui::Text("Translation");
-      ImGui::SameLine();
-      bool const isUsingPos =
-          ImGui::DragFloat3("##Position", translation, 0.1f);
-      if (isUsingPos) {
+      bool const using_translation =
+          transform_component<"Translation">(translation, 0.1f);
+      if (using_translation) {
         _selected_operation =
             operation_to_index(ImGuizmo::OPERATION::TRANSLATE);
       }
 
-      ImGui::Text("Rotation   ");
-      ImGui::SameLine();
-      bool const isUsingRot = ImGui::DragFloat3("##Rotation", rotation, 1.0f);
-      if (isUsingRot) {
+      bool const using_rotation =
+          transform_component<"Rotation   ">(rotation, 1.0f);
+      if (using_rotation) {
         _selected_operation = operation_to_index(ImGuizmo::OPERATION::ROTATE);
       }
 
-      ImGui::Text("Scale      ");
-      ImGui::SameLine();
-      bool const isUsingSc = ImGui::DragFloat3("##Scale", scale, 0.1f);
-      if (isUsingSc) {
+      bool const using_scale = transform_component<"Scale      ">(scale, 0.1f);
+      if (using_scale) {
         _selected_operation = operation_to_index(ImGuizmo::OPERATION::SCALE);
       }
 
-      bool const isUsingComponents = isUsingPos | isUsingRot | isUsingSc;
-
-      ImGui::PopItemWidth();
-      if (isUsingComponents) {
-        ImGuizmo::RecomposeMatrixFromComponents(
-            translation, rotation, scale, glm::value_ptr(transform.value()));
-      }
+      ImGuizmo::RecomposeMatrixFromComponents(
+          glm::value_ptr(translation), glm::value_ptr(rotation),
+          glm::value_ptr(scale), glm::value_ptr(global_transform.value()));
 
       ImGuiIO &io = ImGui::GetIO();
       ImGuizmo::SetOrthographic(false);
@@ -348,36 +359,52 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
       ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection),
                            index_to_operation(_selected_operation),
                            index_to_locale(_selected_locale),
-                           glm::value_ptr(transform.value()));
-      if (isUsingComponents || ImGuizmo::IsUsing()) {
+                           glm::value_ptr(global_transform.value()));
+
+      auto parent = _transform_hierarchy->parent(_selected->transform_id());
+      if (parent == transform_hierarchy::invalid_transform_id) {
         _transform_hierarchy->set_global_location(_selected->transform_id(),
-                                                  transform.value());
+                                                  global_transform.value());
+      } else {
+        auto parent_global = _transform_hierarchy->global_location(parent);
+        glm::mat4 const inv_parent_global =
+            glm::inverse(parent_global.value_or(glm::mat4(1.0f)));
+        glm::mat4 const child_local =
+            inv_parent_global * global_transform.value();
+        _transform_hierarchy->set_local_location(_selected->transform_id(),
+                                                 child_local);
       }
     }
 
     if (auto *static_mesh = _selected->get<static_mesh_entity_t>()) {
-      static const char *none{"<none>"};
+
+      std::optional<std::string_view> renderable_name =
+          static_mesh->renderable_name();
       std::vector<const char *> model_ptrs;
-      model_ptrs.push_back(none);
+      if (renderable_name.has_value()) {
+        model_ptrs.push_back(renderable_name.value().data());
+      } else {
+        static const char *none{"<none>"};
+        model_ptrs.push_back(none);
+      }
+
       for (std::string &model : _all_models) {
         model_ptrs.push_back(model.c_str());
       }
 
-      // TODO: Because we store a permanent _add_entity_selected index it is not
-      // properly reset, and therefore if we make an object with index 1, then a
-      // object ith index 3, and then select back to the object with index 1, we
-      // still show the name that the index 3 pointed towards.
-
+      int selected_entity{0};
       ImGui::Text("Model");
       ImGui::SameLine();
-      if (ImGui::Combo("##Model List", &_add_entity_selected, model_ptrs.data(),
+      if (ImGui::Combo("##Model List", &selected_entity, model_ptrs.data(),
                        model_ptrs.size())) {
-        if (_add_entity_selected != 0) {
+        if (selected_entity != 0) {
+          std::string selected_renderable = _all_models[selected_entity - 1];
           renderable_t *renderable =
-              _resources->get_renderable(_all_models[_add_entity_selected - 1]);
+              _resources->get_renderable(selected_renderable);
 
           if (renderable != nullptr) {
-            static_mesh->set_renderable(_core, _static_render, *renderable);
+            static_mesh->set_renderable(selected_renderable, _core,
+                                        _static_render, *renderable);
           }
         }
       }
@@ -385,8 +412,8 @@ constexpr auto ui_level_editor_t::draw_selected(glm::mat4 view,
   }
 }
 
-constexpr auto ui_level_editor_t::draw(world_t &world) -> void {
-  ImGui::Begin("Level Editor");
+constexpr auto entity_hierarchy_t::draw(world_t &world) -> void {
+  ImGui::Begin("Entity Hierarchy");
   draw_edit_mode();
   ImGui::Separator();
   draw_world_manager(world);
@@ -397,4 +424,4 @@ constexpr auto ui_level_editor_t::draw(world_t &world) -> void {
   ImGui::End();
 }
 
-} // namespace game
+} // namespace game::ui

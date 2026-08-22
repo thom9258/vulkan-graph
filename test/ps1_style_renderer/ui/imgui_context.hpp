@@ -7,10 +7,8 @@
 #include <ImGuizmo.h>
 #include <vulkan/vulkan_to_string.hpp>
 
-#include "../utility/sdl.hpp"
-
-#include "debugui_render.hpp"
-
+#include "../../utility/sdl.hpp"
+#include "../debugui_render.hpp"
 
 namespace game {
 

@@ -5,31 +5,38 @@
 
 #include <span>
 
-namespace game {
+namespace game::ui {
 
-class ui_game_manager_t {
+class game_manager_t {
 public:
-  constexpr ui_game_manager_t() = default;
+  constexpr game_manager_t() = default;
   constexpr auto draw() -> void;
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
   constexpr auto should_close() const -> bool;
-  constexpr auto show_level_editor() const -> bool;
+  constexpr auto show_entity_hierarchy() const -> bool;
+  constexpr auto show_level_settings() const -> bool;
 
 private:
   bool _should_close{false};
-  bool _show_level_editor{true};
+  bool _show_entity_hierarchy{true};
+  bool _show_level_settings{true};
 };
 
-constexpr auto ui_game_manager_t::update_input(std::span<SDL_Event>) -> void {}
+constexpr auto game_manager_t::update_input(std::span<SDL_Event>) -> void {}
 
-constexpr auto ui_game_manager_t::should_close() const -> bool {
+constexpr auto game_manager_t::should_close() const -> bool {
   return _should_close;
 }
-constexpr auto ui_game_manager_t::show_level_editor() const -> bool {
-  return _show_level_editor;
+
+constexpr auto game_manager_t::show_entity_hierarchy() const -> bool {
+  return _show_entity_hierarchy;
 }
 
-constexpr auto ui_game_manager_t::draw() -> void {
+constexpr auto game_manager_t::show_level_settings() const -> bool {
+  return _show_level_settings;
+}
+
+constexpr auto game_manager_t::draw() -> void {
 
   const int flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
                     ImGuiWindowFlags_NoScrollbar;
@@ -40,10 +47,15 @@ constexpr auto ui_game_manager_t::draw() -> void {
     _should_close = true;
   }
 
-  ImGui::Text("Level Editor");
+  ImGui::Text("Entity Hierarchy");
   ImGui::SameLine();
-  ImGui::Checkbox("##Level Editor", &_show_level_editor);
+  ImGui::Checkbox("##Entity Hierarchy", &_show_entity_hierarchy);
+
+  ImGui::Text("Level Settings");
+  ImGui::SameLine();
+  ImGui::Checkbox("##Level Settings", &_show_level_settings);
+
   ImGui::End();
 }
 
-} // namespace game
+} // namespace game::ui
