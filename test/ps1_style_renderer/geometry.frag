@@ -12,5 +12,6 @@ uniform sampler2D diffuse;
 
 void main() {
     vec3 diffuse = vec3(texture(diffuse, inTexcoord));
-	outColor = ps1_posterize(vec4(diffuse * inColor, 1.0));
+	//outColor = ps1_posterize(vec4(diffuse * inColor, 1.0));
+	outColor = vec4(diffuse * inColor, 1.0);
 }

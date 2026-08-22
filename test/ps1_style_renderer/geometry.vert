@@ -19,10 +19,13 @@ uniform Info
 } info;
 
 void main() {
-	const vec2 resolution = vec2(320.0, 240.0);
     const mat4 transform = info.proj * info.view * info.model;
 	const vec4 position = transform * vec4(inPosition, 1.0f);
-	gl_Position = ps1_low_precision(position, resolution);
+
+	//const vec2 resolution = vec2(320.0, 240.0);
+	//gl_Position = ps1_low_precision(position, resolution);
+
+	gl_Position = position;
     fragColor = inColor;
     texcoord = inTexcoord;
 }
