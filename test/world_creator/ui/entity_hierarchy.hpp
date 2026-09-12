@@ -381,20 +381,6 @@ constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
           _transform_hierarchy->set_global_location(_selected->transform_id(),
                                                     global_transform.value());
       }
-
-      // auto parent = _transform_hierarchy->parent(_selected->transform_id());
-      // if (parent == transform_hierarchy::invalid_transform_id) {
-      //   _transform_hierarchy->set_global_location(_selected->transform_id(),
-      //                                             global_transform.value());
-      // } else {
-      //   auto parent_global = _transform_hierarchy->global_location(parent);
-      //   glm::mat4 const inv_parent_global =
-      //       glm::inverse(parent_global.value_or(glm::mat4(1.0f)));
-      //   glm::mat4 const child_local =
-      //       inv_parent_global * global_transform.value();
-      //   _transform_hierarchy->set_local_location(_selected->transform_id(),
-      //                                            child_local);
-      // }
     }
 
     if (auto *static_mesh = _selected->get<static_mesh_entity_t>()) {
@@ -427,6 +413,15 @@ constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
             static_mesh->set_renderable(selected_renderable, _core,
                                         _static_render, *renderable);
           }
+        }
+      }
+
+      {
+        ImGui::Text("Has Mesh Collider");
+        ImGui::SameLine();
+        bool has_mesh_collider = static_mesh->has_mesh_collider();
+        if (ImGui::Checkbox("##HasMeshCollider", &has_mesh_collider)) {
+          static_mesh->set_has_mesh_collider(has_mesh_collider);
         }
       }
     }

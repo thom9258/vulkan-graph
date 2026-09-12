@@ -128,6 +128,8 @@ auto world_t::load_entity_v1(
       deserialized.set_renderable(entity.model_source.value(), _core,
                                   _static_render, *renderable);
     }
+
+	deserialized.set_has_mesh_collider(entity.has_mesh_collider);
   }
 
   add_entity(std::move(deserialized));
@@ -202,6 +204,7 @@ auto world_t::save_entity_v1(transform_hierarchy::transform_id_t transform_id)
 
   if (auto *static_mesh = entity->get<static_mesh_entity_t>()) {
     serialized.model_source = static_mesh->renderable_name();
+	serialized.has_mesh_collider = static_mesh->has_mesh_collider();
   }
 
   auto children = _transform_hierarchy->children(transform_id);

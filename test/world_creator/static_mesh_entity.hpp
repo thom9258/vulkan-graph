@@ -83,6 +83,10 @@ public:
 
   constexpr auto set_name(std::string_view name) -> void;
 
+  constexpr auto has_mesh_collider() -> bool;
+
+  constexpr auto set_has_mesh_collider(bool choice) -> void;
+
   constexpr auto transform_id() -> transform_hierarchy::transform_id_t;
 
   constexpr auto
@@ -102,6 +106,7 @@ public:
 
 private:
   std::string _name{"unnamed-static-mesh-entity"};
+  bool _has_mesh_collider{false};
   std::optional<std::string> _renderable_name;
   transform_hierarchy::transform_id_t _transform_id{
       transform_hierarchy::invalid_transform_id};
@@ -119,6 +124,14 @@ constexpr auto static_mesh_entity_t::name() -> std::string_view {
 
 constexpr auto static_mesh_entity_t::set_name(std::string_view name) -> void {
   _name = name;
+}
+
+constexpr auto static_mesh_entity_t::has_mesh_collider() -> bool {
+  return _has_mesh_collider;
+}
+
+constexpr auto static_mesh_entity_t::set_has_mesh_collider(bool choice) -> void {
+  _has_mesh_collider = choice;
 }
 
 constexpr auto static_mesh_entity_t::transform_id()
