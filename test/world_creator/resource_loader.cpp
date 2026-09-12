@@ -3,7 +3,7 @@
 #include "alex/log.hpp"
 #include "alex/memory_buffer.hpp"
 #include "alex/texture.hpp"
-#include "ps1_style_renderer/bitmap.hpp"
+#include "bitmap.hpp"
 
 #include <assimp/material.h>
 #include <assimp/postprocess.h>

@@ -1,6 +1,6 @@
 #include "resources.hpp"
 
-#include "ps1_style_renderer/resource_loader.hpp"
+#include "resource_loader.hpp"
 #include "slurp_file.hpp"
 
 #include <alex/log.hpp>

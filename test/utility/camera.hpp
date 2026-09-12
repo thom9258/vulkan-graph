@@ -15,6 +15,7 @@ public:
         _projection{projection} {}
 
   constexpr auto projection() -> glm::mat4 { return _projection; }
+
   constexpr auto set_projection(glm::mat4 projection) -> void {
     _projection = projection;
   }
@@ -22,6 +23,8 @@ public:
   constexpr auto set_position(glm::vec3 position) -> void {
     _position = position;
   }
+
+  constexpr auto position() -> glm::vec3 { return _position; }
 
   constexpr auto translate_global(glm::vec3 delta) -> void { _position += delta; }
 

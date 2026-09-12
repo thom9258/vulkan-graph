@@ -135,20 +135,17 @@ constexpr entity_hierarchy_t::entity_hierarchy_t(
 }
 
 constexpr auto entity_hierarchy_t::update_input(std::span<SDL_Event>) -> void {
+  if (ImGui::IsKeyDown(ImGuiMod_Alt)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_1))
+      _selected_operation = operation_to_index(ImGuizmo::TRANSLATE);
+    if (ImGui::IsKeyPressed(ImGuiKey_2))
+      _selected_operation = operation_to_index(ImGuizmo::ROTATE);
+    if (ImGui::IsKeyPressed(ImGuiKey_3))
+      _selected_operation = operation_to_index(ImGuizmo::SCALE);
+  }
 
-  if (!ImGui::IsAnyItemActive()) {
-    if (ImGui::IsKeyDown(ImGuiMod_Alt)) {
-      if (ImGui::IsKeyPressed(ImGuiKey_1))
-        _selected_operation = operation_to_index(ImGuizmo::TRANSLATE);
-      if (ImGui::IsKeyPressed(ImGuiKey_2))
-        _selected_operation = operation_to_index(ImGuizmo::ROTATE);
-      if (ImGui::IsKeyPressed(ImGuiKey_3))
-        _selected_operation = operation_to_index(ImGuizmo::SCALE);
-    }
-
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-      _selected = nullptr;
-    }
+  if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    _selected = nullptr;
   }
 }
 
@@ -230,12 +227,12 @@ constexpr auto entity_hierarchy_t::draw_world_manager(world_t &world) -> void {
   auto world_path = std::filesystem::path(world_path_str);
 
   if (ImGui::Button("Save")) {
-    world.save_world(world_path);
+    world.save_world_v1(world_path);
   }
 
   ImGui::SameLine();
   if (ImGui::Button("Load")) {
-    world.load_world(world_path);
+    world.load_world_v1(world_path);
   }
 }
 
@@ -265,6 +262,32 @@ constexpr auto entity_hierarchy_t::draw_hierarchy(world_t &world) -> void {
   }
 }
 
+namespace uiutil {
+
+template <consteval_string name>
+constexpr auto draggable_vec3(glm::vec3 &vec, float speed) -> bool {
+  ImGui::PushItemWidth(-1.0f);
+  constexpr auto label = consteval_string("##") + name;
+  ImGui::Text("%s", name.c_str());
+  ImGui::SameLine();
+  bool const used =
+      ImGui::DragFloat3(label.c_str(), glm::value_ptr(vec), speed);
+  ImGui::PopItemWidth();
+  return used;
+}
+
+template <consteval_string name>
+constexpr auto input_text(std::span<char> buffer) -> bool {
+
+  constexpr auto label = consteval_string("##") + name;
+  ImGui::Text(name.c_str());
+  ImGui::SameLine();
+  return ImGui::InputText(label.c_str(), buffer.data(), buffer.size(),
+                          ImGuiInputTextFlags_EnterReturnsTrue);
+}
+
+} // namespace uiutil
+
 constexpr auto entity_hierarchy_t::draw_edit_mode() -> void {
   ImGui::Text("Operation");
   ImGui::SameLine();
@@ -279,22 +302,6 @@ constexpr auto entity_hierarchy_t::draw_edit_mode() -> void {
   }
 }
 
-namespace {
-
-template <consteval_string name>
-constexpr auto transform_component(glm::vec3 vec, float speed) -> bool {
-  ImGui::PushItemWidth(-1.0f);
-  constexpr auto label = consteval_string("##") + name;
-  ImGui::Text("%s", name.c_str());
-  ImGui::SameLine();
-  bool const used =
-      ImGui::DragFloat3(label.c_str(), glm::value_ptr(vec), speed);
-  ImGui::PopItemWidth();
-  return used;
-}
-
-} // namespace
-
 constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
                                                  glm::mat4 projection) -> void {
   if (_selected != nullptr) {
@@ -308,72 +315,86 @@ constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
         name_buffer[i] = name[i];
       }
 
-      ImGui::Text("Name");
-      ImGui::SameLine();
-      if (ImGui::InputText("##Name", name_buffer.data(), name_buffer.size(),
-                           ImGuiInputTextFlags_EnterReturnsTrue)) {
+      if (uiutil::input_text<"Name">(name_buffer)) {
         _selected->set_name(name_buffer.data());
       }
 
-      auto global_transform =
-          _transform_hierarchy->global_location(_selected->transform_id());
+      {
+        auto local_transform =
+            _transform_hierarchy->local_location(_selected->transform_id());
 
-      glm::vec3 translation(0.0f);
-      glm::vec3 rotation(0.0f);
-      glm::vec3 scale(1.0f);
-      ImGuizmo::DecomposeMatrixToComponents(
-          glm::value_ptr(global_transform.value()), glm::value_ptr(translation),
-          glm::value_ptr(rotation), glm::value_ptr(scale));
+        glm::vec3 translation(0.0f);
+        glm::vec3 rotation(0.0f);
+        glm::vec3 scale(1.0f);
+        ImGuizmo::DecomposeMatrixToComponents(
+            glm::value_ptr(local_transform.value()),
+            glm::value_ptr(translation), glm::value_ptr(rotation),
+            glm::value_ptr(scale));
 
-      bool const using_translation =
-          transform_component<"Translation">(translation, 0.1f);
-      if (using_translation) {
-        _selected_operation =
-            operation_to_index(ImGuizmo::OPERATION::TRANSLATE);
+        bool const using_translation =
+            uiutil::draggable_vec3<"Translation">(translation, 0.1f);
+        if (using_translation) {
+          _selected_operation =
+              operation_to_index(ImGuizmo::OPERATION::TRANSLATE);
+        }
+
+        bool const using_rotation =
+            uiutil::draggable_vec3<"Rotation   ">(rotation, 1.0f);
+        if (using_rotation) {
+          _selected_operation = operation_to_index(ImGuizmo::OPERATION::ROTATE);
+        }
+
+        bool const using_scale =
+            uiutil::draggable_vec3<"Scale      ">(scale, 0.1f);
+        if (using_scale) {
+          _selected_operation = operation_to_index(ImGuizmo::OPERATION::SCALE);
+        }
+
+        if (using_translation || using_rotation || using_scale) {
+          ImGuizmo::RecomposeMatrixFromComponents(
+              glm::value_ptr(translation), glm::value_ptr(rotation),
+              glm::value_ptr(scale), glm::value_ptr(local_transform.value()));
+
+          _transform_hierarchy->set_local_location(_selected->transform_id(),
+                                                   local_transform.value());
+        }
+      }
+      {
+        auto global_transform =
+            _transform_hierarchy->global_location(_selected->transform_id());
+
+        ImGuiIO &io = ImGui::GetIO();
+        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+
+        // imguizmo uses opengl style projection but since we are in vulkan,
+        // we need to revert the projection matrix flip we do when calculating
+        // the projection matrix
+        projection[1][1] *= -1.0f;
+
+        bool manipulated = ImGuizmo::Manipulate(
+            glm::value_ptr(view), glm::value_ptr(projection),
+            index_to_operation(_selected_operation),
+            index_to_locale(_selected_locale),
+            glm::value_ptr(global_transform.value()));
+        if (manipulated)
+          _transform_hierarchy->set_global_location(_selected->transform_id(),
+                                                    global_transform.value());
       }
 
-      bool const using_rotation =
-          transform_component<"Rotation   ">(rotation, 1.0f);
-      if (using_rotation) {
-        _selected_operation = operation_to_index(ImGuizmo::OPERATION::ROTATE);
-      }
-
-      bool const using_scale = transform_component<"Scale      ">(scale, 0.1f);
-      if (using_scale) {
-        _selected_operation = operation_to_index(ImGuizmo::OPERATION::SCALE);
-      }
-
-      ImGuizmo::RecomposeMatrixFromComponents(
-          glm::value_ptr(translation), glm::value_ptr(rotation),
-          glm::value_ptr(scale), glm::value_ptr(global_transform.value()));
-
-      ImGuiIO &io = ImGui::GetIO();
-      ImGuizmo::SetOrthographic(false);
-      ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-
-      // imguizmo uses opengl style projection but since we are in vulkan,
-      // we need to revert the projection matrix flip we do when calculating
-      // the projection matrix
-      projection[1][1] *= -1.0f;
-
-      ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection),
-                           index_to_operation(_selected_operation),
-                           index_to_locale(_selected_locale),
-                           glm::value_ptr(global_transform.value()));
-
-      auto parent = _transform_hierarchy->parent(_selected->transform_id());
-      if (parent == transform_hierarchy::invalid_transform_id) {
-        _transform_hierarchy->set_global_location(_selected->transform_id(),
-                                                  global_transform.value());
-      } else {
-        auto parent_global = _transform_hierarchy->global_location(parent);
-        glm::mat4 const inv_parent_global =
-            glm::inverse(parent_global.value_or(glm::mat4(1.0f)));
-        glm::mat4 const child_local =
-            inv_parent_global * global_transform.value();
-        _transform_hierarchy->set_local_location(_selected->transform_id(),
-                                                 child_local);
-      }
+      // auto parent = _transform_hierarchy->parent(_selected->transform_id());
+      // if (parent == transform_hierarchy::invalid_transform_id) {
+      //   _transform_hierarchy->set_global_location(_selected->transform_id(),
+      //                                             global_transform.value());
+      // } else {
+      //   auto parent_global = _transform_hierarchy->global_location(parent);
+      //   glm::mat4 const inv_parent_global =
+      //       glm::inverse(parent_global.value_or(glm::mat4(1.0f)));
+      //   glm::mat4 const child_local =
+      //       inv_parent_global * global_transform.value();
+      //   _transform_hierarchy->set_local_location(_selected->transform_id(),
+      //                                            child_local);
+      // }
     }
 
     if (auto *static_mesh = _selected->get<static_mesh_entity_t>()) {

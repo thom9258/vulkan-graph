@@ -12,8 +12,8 @@
 #include "entity.hpp"
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
-#include "ps1_style_renderer/resource_loader.hpp"
-#include "ps1_style_renderer/static_mesh_entity.hpp"
+#include "resource_loader.hpp"
+#include "static_mesh_entity.hpp"
 #include "resources.hpp"
 #include "static_render.hpp"
 #include "ui/entity_hierarchy.hpp"
@@ -91,7 +91,7 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
   _resources.emplace(_core, "../asset_manifest.json");
 
   _world.emplace(_window->window_extent(), _core, _static_render,
-                 &_resources.value());
+                 &_resources.value(), _imgui_context);
 
   _entity_hierarchy =
       ui::entity_hierarchy_t(&_world.value(), &_world->transform_hierarchy(),

@@ -37,6 +37,8 @@ public:
   auto render_draw_data(ImDrawData *draw_data, VkCommandBuffer command_buffer,
                         VkPipeline pipeline = VK_NULL_HANDLE) -> void;
 
+  auto is_imgui_hovered() -> bool;
+
 private:
   vk::UniqueDescriptorPool _descriptor_pool;
 };

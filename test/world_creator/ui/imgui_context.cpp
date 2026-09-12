@@ -27,6 +27,10 @@ auto imgui_context_t::process_event(const SDL_Event *e) -> bool {
   return ImGui_ImplSDL2_ProcessEvent(e);
 }
 
+auto imgui_context_t::is_imgui_hovered() -> bool {
+  return ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow);
+}
+
 auto imgui_context_t::render_draw_data(ImDrawData *draw_data,
                                        VkCommandBuffer command_buffer,
                                        VkPipeline pipeline) -> void {

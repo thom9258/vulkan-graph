@@ -33,7 +33,7 @@ struct player_t {
 
   constexpr player_t(camera_t *camera);
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
-  constexpr auto update_logic(double deltatime) -> void;
+  constexpr auto update_movement(double deltatime) -> void;
 
   constexpr auto draw_resource_update(player_draw_resource_update_info_t &info)
       -> void;
@@ -71,7 +71,7 @@ private:
 
 constexpr player_t::player_t(camera_t *camera) : _camera{camera} {}
 
-constexpr auto player_t::update_logic(double deltatime) -> void {
+constexpr auto player_t::update_movement(double deltatime) -> void {
   auto move_direction = glm::vec3(0.0f);
   if (_button.w.is_pressed()) {
     move_direction += glm::vec3(-1.0f, 0.0f, 0.0f);
