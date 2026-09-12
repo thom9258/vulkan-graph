@@ -2,8 +2,6 @@
 #include "find_memory_type.hpp"
 #include <vulkan/vulkan_enums.hpp>
 
-#include <print>
-
 namespace alex {
 
 texture_t::texture_t(texture_info_t &info) {

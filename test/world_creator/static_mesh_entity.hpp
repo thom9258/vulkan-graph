@@ -130,7 +130,8 @@ constexpr auto static_mesh_entity_t::has_mesh_collider() -> bool {
   return _has_mesh_collider;
 }
 
-constexpr auto static_mesh_entity_t::set_has_mesh_collider(bool choice) -> void {
+constexpr auto static_mesh_entity_t::set_has_mesh_collider(bool choice)
+    -> void {
   _has_mesh_collider = choice;
 }
 
@@ -151,19 +152,17 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
     return;
   }
 
-  auto model_matrix = info.transform_hierarchy->global_location(_transform_id);
-
   auto update_model = [&](auto self, detail::static_model_ref_t &model_ref,
                           glm::mat4 parent_transform) -> void {
-    const glm::mat4 transform = parent_transform * model_ref.transform;
+    const glm::mat4 model_matrix = parent_transform * model_ref.transform;
     for (detail::static_mesh_ref_t &mesh_ref : model_ref.meshes) {
       static_render_t::frame_uniform_t frame_uniform;
       frame_uniform.view = info.camera_view;
       frame_uniform.projection = info.camera_projection;
-      frame_uniform.model = transform;
+      frame_uniform.model = model_matrix;
 
       // TODO: must calculate parent to child matrix relationship
-      frame_uniform.model = model_matrix.value();
+      frame_uniform.model = model_matrix;
       std::memcpy(mesh_ref.direct_uniforms[info.flightframe].memory_ptr(),
                   &frame_uniform, sizeof(frame_uniform));
 
@@ -177,11 +176,13 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
     }
 
     for (detail::static_model_ref_t &child : model_ref.children) {
-      self(self, child, transform);
+      self(self, child, model_matrix);
     }
   };
 
-  update_model(update_model, _static_model_ref.value(), glm::mat4(1.0f));
+  auto location = info.transform_hierarchy->global_location(_transform_id);
+  update_model(update_model, _static_model_ref.value(),
+               location.value_or(glm::mat4(1.0f)));
 }
 
 constexpr auto static_mesh_entity_t::draw(static_mesh_entity_draw_info_t &info)
@@ -311,6 +312,7 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
     if (mesh.material_name().has_value()) {
       if (material_t *material =
               renderable.find_material(*mesh.material_name())) {
+        std::println("Found material {}", material->name());
         for (vk::UniqueDescriptorSet &diffuse_set :
              ref.diffuse_descriptorsets) {
           const auto image_info =
@@ -318,6 +320,10 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
                   .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
                   .setSampler(material->diffuse().sampler->get())
                   .setImageView(material->diffuse().texture->view());
+
+          if (material->diffuse().texture->view() == VK_NULL_HANDLE) {
+            ALEX_ERROR("Trying to draw view that is null");
+          }
 
           const std::array<vk::WriteDescriptorSet, 1> writes{
               vk::WriteDescriptorSet{}

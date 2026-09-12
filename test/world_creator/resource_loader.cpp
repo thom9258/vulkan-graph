@@ -75,15 +75,18 @@ constexpr auto get_first_texture_path(aiTextureType type, aiMaterial *material)
   if (material == nullptr) {
     return std::nullopt;
   }
-  int const constexpr first_texture_index{0};
+
+  static const constexpr int texture_index{0};
   aiString aipathstring;
-  material->GetTexture(type, first_texture_index, &aipathstring);
+  material->GetTexture(type, texture_index, &aipathstring);
   std::string pathstring = aipathstring.C_Str();
   if (pathstring == "") {
     return std::nullopt;
   }
 
   if (pathstring.starts_with("*")) {
+    ALEX_ERROR("Inline textures {} are not supported yet",
+               aiTextureTypeToString(type));
     return std::nullopt;
   }
 
@@ -92,12 +95,6 @@ constexpr auto get_first_texture_path(aiTextureType type, aiMaterial *material)
 
 constexpr auto get_first_diffuse_path =
     std::bind_front(get_first_texture_path, aiTextureType_DIFFUSE);
-
-constexpr auto get_first_specular_path =
-    std::bind_front(get_first_texture_path, aiTextureType_SPECULAR);
-
-constexpr auto get_first_ambient_path =
-    std::bind_front(get_first_texture_path, aiTextureType_AMBIENT);
 
 } // namespace util
 
@@ -224,16 +221,20 @@ auto material_t::set_name(std::string_view name) -> void { _name = name; }
 auto material_t::diffuse() -> material_texture_t & { return _diffuse; }
 
 auto material_t::load_from_disk(renderable_load_from_disk_info_t &info,
-                                aiMaterial *aimaterial)
+                                aiMaterial *aimaterial, std::string_view mesh_name)
     -> std::optional<material_t> {
   std::filesystem::path const basedir = info.path.parent_path();
-  material_t material;
-  material.set_name(aimaterial->GetName().C_Str());
-
   std::optional<std::filesystem::path> diffuse_path =
       util::get_first_diffuse_path(aimaterial);
 
+  ALEX_WARN_IF(!diffuse_path.has_value(),
+               "Mesh '{}' Could not get path for diffuse texture '{}'",
+               mesh_name, aimaterial->GetName().C_Str());
+
   if (diffuse_path.has_value()) {
+    material_t material;
+    material.set_name(aimaterial->GetName().C_Str());
+
     aimaterial->Get(AI_MATKEY_TWOSIDED, material.diffuse().two_sided);
     aimaterial->Get(AI_MATKEY_OPACITY, material.diffuse().opacity);
     aimaterial->Get(AI_MATKEY_SHININESS, material.diffuse().shininess);
@@ -260,6 +261,7 @@ auto material_t::load_from_disk(renderable_load_from_disk_info_t &info,
                            vk::ImageUsageFlagBits::eTransferDst;
 
       material.diffuse().texture.emplace(texture_info);
+
       immediate_copy_bitmap_to_texture(info.core,
                                        material.diffuse().texture.value(),
                                        diffuse_bitmap.value());
@@ -313,9 +315,15 @@ auto material_t::load_from_disk(renderable_load_from_disk_info_t &info,
       material.diffuse().sampler =
           info.core->device().createSamplerUnique(sampler_info);
     }
+
+    if (material.diffuse().texture->view() == VK_NULL_HANDLE) {
+      ALEX_ERROR("view before return is null");
+    }
+
+    return material;
   }
 
-  return material;
+  return std::nullopt;
 }
 
 auto mesh_t::vertices() -> alex::memory_buffer_t * {
@@ -496,6 +504,18 @@ auto model_t::add_mesh(mesh_t mesh) -> void {
   _meshes.push_back(std::move(mesh));
 }
 
+namespace {
+constexpr auto find_material(std::string_view target,
+                             std::span<material_t> materials) -> material_t * {
+  for (material_t &material : materials) {
+    if (material.name() == target)
+      return &material;
+  }
+
+  return nullptr;
+}
+} // namespace
+
 auto model_t::load_from_disk(renderable_load_from_disk_info_t &info,
                              std::vector<material_t> &materials,
                              const aiScene *scene, aiNode *node)
@@ -506,17 +526,32 @@ auto model_t::load_from_disk(renderable_load_from_disk_info_t &info,
 
   for (unsigned int i = 0; i < node->mNumMeshes; i++) {
     aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
+    std::string mesh_name = mesh->mName.C_Str();
     auto loaded_mesh = mesh_t::load_from_disk(info, scene, mesh);
+    bool had_mesh = loaded_mesh.has_value();
     if (loaded_mesh.has_value()) {
       model.add_mesh(std::move(*loaded_mesh));
     }
 
     aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
     if (material != nullptr) {
-      auto loaded_material = material_t::load_from_disk(info, material);
-      if (loaded_material.has_value()) {
-        materials.push_back(std::move(*loaded_material));
+      std::string material_name = material->GetName().C_Str();
+      material_t *existing = find_material(material_name, materials);
+      if (existing == nullptr) {
+        auto loaded_material = material_t::load_from_disk(info, material, mesh_name);
+        if (loaded_material.has_value()) {
+          ALEX_INFO("Loaded Mesh '{}' has Material '{}'", mesh_name,
+                    material_name);
+          materials.push_back(std::move(*loaded_material));
+        } else {
+          ALEX_ERROR("Could not load Material '{}' for Mesh '{}' from disk!",
+                     material_name, mesh_name);
+        }
       }
+    }
+
+    if (had_mesh && material == nullptr) {
+      ALEX_WARN("Got Mesh '{}' that has no Material", mesh_name);
     }
   }
 
@@ -534,6 +569,10 @@ auto model_t::load_from_disk(renderable_load_from_disk_info_t &info,
 
 renderable_t::renderable_t(std::filesystem::path path, model_t root)
     : _path{path}, _root{std::move(root)} {}
+
+auto renderable_t::material_count() -> std::size_t { return _materials.size(); }
+
+auto renderable_t::materials() -> std::span<material_t> { return _materials; }
 
 auto renderable_t::load_from_disk(renderable_load_from_disk_info_t &info)
     -> std::expected<renderable_t, std::string> {
@@ -582,6 +621,13 @@ auto renderable_t::load_from_disk(renderable_load_from_disk_info_t &info)
   std::vector<material_t> materials;
   auto loaded_model =
       model_t::load_from_disk(info, materials, scene, scene->mRootNode);
+
+  for (material_t &mat : materials) {
+    if (mat.diffuse().texture->view() == VK_NULL_HANDLE) {
+      ALEX_ERROR("Found material after loading from disk that has null handle");
+    }
+  }
+
   if (loaded_model.has_value()) {
     renderable_t model_source(info.path, std::move(*loaded_model));
 
@@ -618,7 +664,7 @@ auto renderable_t::root() -> model_t * {
   return nullptr;
 }
 
-auto renderable_t::add_material(material_t &&material) -> material_t * {
+auto renderable_t::add_material(material_t material) -> material_t * {
   _materials.push_back(std::move(material));
   return &_materials.back();
 }

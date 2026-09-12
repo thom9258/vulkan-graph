@@ -194,10 +194,9 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
 
   graph.set_end(debugui_task_id);
 
-  graph.add_task(
-      upload_task_id,
-      std::make_unique<alex::simple_task_t>(
-          "upload", [&](vk::CommandBuffer commandbuffer) {
+  graph.add_task(upload_task_id,
+                 std::make_unique<alex::simple_task_t>(
+                     "upload", [&](vk::CommandBuffer commandbuffer) {
             for (entity_t &entity : _world->entities()) {
               if (auto *static_mesh = entity.get<static_mesh_entity_t>()) {
                 static_mesh_entity_update_info_t update_info;

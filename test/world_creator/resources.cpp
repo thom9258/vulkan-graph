@@ -8,6 +8,8 @@
 #include "json.hpp"
 
 #include <string>
+#include <vector>
+#include <vulkan/vulkan_enums.hpp>
 
 namespace game {
 
@@ -31,7 +33,6 @@ resources_t::resources_t(alex::core_t *core, std::filesystem::path manifest)
     auto name = model["name"].get<std::string>();
     auto path = model["path"].get<std::string>();
     if (name.has_value() && path.has_value()) {
-
       renderable_load_from_disk_info_t info;
       info.core = _core;
       info.path = *path;
@@ -50,8 +51,15 @@ resources_t::resources_t(alex::core_t *core, std::filesystem::path manifest)
         model_source->root()->set_transform(glm::scale(original, *scale));
       }
 
-      ALEX_INFO("Loaded '{}' from path '{}' in {}s", *name, *path,
-                model_source->loadtime_seconds().value());
+      ALEX_INFO("Loaded '{}' from path '{}' with '{}' materials in {}s", *name, *path,
+                model_source->material_count(), model_source->loadtime_seconds().value());
+
+      for (material_t &mat : model_source->materials()) {
+        if (mat.diffuse().texture->view() == VK_NULL_HANDLE) {
+                ALEX_ERROR("Found material in model source that has null handle when inserting renderable"); 
+            }
+      }
+      
       _renderables.insert({*name, std::move(*model_source)});
     }
   }

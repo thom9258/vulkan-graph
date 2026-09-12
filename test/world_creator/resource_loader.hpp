@@ -48,7 +48,9 @@ struct material_texture_t {
 class material_t {
 public:
   static auto load_from_disk(renderable_load_from_disk_info_t &info,
-                             aiMaterial *material) -> std::optional<material_t>;
+                             aiMaterial *material,
+                             std::string_view mesh_name)
+      -> std::optional<material_t>;
 
   auto name() -> std::string_view;
 
@@ -59,16 +61,6 @@ public:
 private:
   std::string _name;
   material_texture_t _diffuse;
-
-  // std::optional<alex::texture_t> diffuse;
-  // std::optional<vk::UniqueSampler> diffuse_sampler;
-  // std::optional<material_properties_t> diffuse_properties;
-  //
-  // std::optional<alex::texture_t> specular;
-  // std::optional<vk::UniqueSampler> specular_sampler;
-  //
-  // std::optional<alex::texture_t> ambient;
-  // std::optional<vk::UniqueSampler> ambient_sampler;
 };
 
 class mesh_t {
@@ -147,10 +139,14 @@ public:
 
   auto find_material(std::string_view name) -> material_t *;
 
+  auto material_count() -> std::size_t;
+
+  auto materials() -> std::span<material_t>;
+
   auto loadtime_seconds() const -> std::optional<double>;
 
 private:
-  auto add_material(material_t &&material) -> material_t *;
+  auto add_material(material_t material) -> material_t *;
   auto set_loadtime(chrono_time_point_t start, chrono_time_point_t end) -> void;
 
   struct loadtime_t {
