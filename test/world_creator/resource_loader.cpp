@@ -540,8 +540,6 @@ auto model_t::load_from_disk(renderable_load_from_disk_info_t &info,
       if (existing == nullptr) {
         auto loaded_material = material_t::load_from_disk(info, material, mesh_name);
         if (loaded_material.has_value()) {
-          ALEX_INFO("Loaded Mesh '{}' has Material '{}'", mesh_name,
-                    material_name);
           materials.push_back(std::move(*loaded_material));
         } else {
           ALEX_ERROR("Could not load Material '{}' for Mesh '{}' from disk!",

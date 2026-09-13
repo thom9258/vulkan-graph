@@ -104,7 +104,14 @@ public:
 
   auto save_world_v1(std::filesystem::path path) -> void;
 
+  auto find_entity(transform_hierarchy::transform_id_t transform_id)
+      -> entity_t *;
+
   auto add_entity(entity_t entity) -> entity_t *;
+
+  auto delete_entity_by_transform_id(transform_hierarchy::transform_id_t transform_id) -> void;
+
+  auto delete_entity_tree_by_transform_id(transform_hierarchy::transform_id_t transform_id) -> void;
 
   auto entities() -> std::span<entity_t>;
 
@@ -122,9 +129,6 @@ public:
   auto set_background_color(background_color_t background_color) -> void;
 
 private:
-  auto find_entity(transform_hierarchy::transform_id_t transform_id)
-      -> entity_t *;
-
   auto save_entity_v1(transform_hierarchy::transform_id_t transform_id)
       -> std::optional<serialization::v1::entity_t>;
 

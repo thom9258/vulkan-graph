@@ -61,6 +61,28 @@ auto world_t::add_entity(entity_t entity) -> entity_t * {
   return &_entities.back();
 }
 
+auto world_t::delete_entity_by_transform_id(
+    transform_hierarchy::transform_id_t transform_id) -> void {
+  entity_t *found = find_entity(transform_id);
+  if (found) {
+    std::ranges::swap(*found, _entities.back());
+    _entities.pop_back();
+  }
+
+  _transform_hierarchy->remove_and_preserve_children(transform_id);
+}
+
+auto world_t::delete_entity_tree_by_transform_id(
+    transform_hierarchy::transform_id_t transform_id) -> void {
+
+  auto children = _transform_hierarchy->children(transform_id);
+  for (transform_hierarchy::transform_id_t child : children) {
+    delete_entity_tree_by_transform_id(child);
+  }
+
+  delete_entity_by_transform_id(transform_id);
+}
+
 auto world_t::entities() -> std::span<entity_t> { return _entities; }
 
 auto world_t::camera() -> camera_t & { return _camera.value(); }
@@ -129,7 +151,7 @@ auto world_t::load_entity_v1(
                                   _static_render, *renderable);
     }
 
-	deserialized.set_has_mesh_collider(entity.has_mesh_collider);
+    deserialized.set_has_mesh_collider(entity.has_mesh_collider);
   }
 
   add_entity(std::move(deserialized));
@@ -204,7 +226,7 @@ auto world_t::save_entity_v1(transform_hierarchy::transform_id_t transform_id)
 
   if (auto *static_mesh = entity->get<static_mesh_entity_t>()) {
     serialized.model_source = static_mesh->renderable_name();
-	serialized.has_mesh_collider = static_mesh->has_mesh_collider();
+    serialized.has_mesh_collider = static_mesh->has_mesh_collider();
   }
 
   auto children = _transform_hierarchy->children(transform_id);

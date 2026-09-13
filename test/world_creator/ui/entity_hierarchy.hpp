@@ -2,6 +2,7 @@
 
 #include "../glm_transform_hierarchy.hpp"
 #include "../include_glm.hpp"
+#include "../light_entity.hpp"
 #include "../resources.hpp"
 #include "../static_mesh_entity.hpp"
 #include "../static_render.hpp"
@@ -26,6 +27,31 @@
 
 namespace game::ui {
 
+struct action_spawn_entity_t {
+  enum class spawn_type_t { static_mesh, light };
+
+  spawn_type_t spawn_type;
+};
+
+struct action_delete_entity_t {
+  transform_hierarchy::transform_id_t transform_id;
+};
+
+struct action_move_entity_t {};
+
+struct action_select_entity_t {
+  transform_hierarchy::transform_id_t transform_id;
+};
+
+struct action_deselect_selected_t {};
+
+struct action_transform_entity_t {};
+
+using action_t =
+    std::variant<action_spawn_entity_t, action_delete_entity_t,
+                 action_move_entity_t, action_select_entity_t,
+                 action_deselect_selected_t, action_transform_entity_t>;
+
 class entity_hierarchy_t {
 public:
   using transform_id_t = transform_hierarchy::transform_id_t;
@@ -38,6 +64,10 @@ public:
       static_render_t *static_render);
 
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
+
+  constexpr auto apply_next_action() -> void;
+
+  constexpr auto undo_last_action() -> void;
 
   constexpr auto draw_entity(std::size_t &id_index,
                              std::span<entity_t> entities, transform_id_t id)
@@ -75,6 +105,9 @@ private:
   entity_t *_selected{nullptr};
   int _selected_operation{0};
   int _selected_locale{0};
+
+  std::optional<action_t> _next_action;
+  std::vector<action_t> _last_actions;
 };
 
 static const char *operations[]{"Translate", "Rotate", "Scale"};
@@ -145,7 +178,7 @@ constexpr auto entity_hierarchy_t::update_input(std::span<SDL_Event>) -> void {
   }
 
   if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-    _selected = nullptr;
+    _next_action = action_deselect_selected_t{};
   }
 }
 
@@ -171,11 +204,38 @@ constexpr auto entity_hierarchy_t::draw_entity(std::size_t &id_index,
   }
 
   ImGuiTreeNodeFlags flags =
-      ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_Selected;
+      ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Selected |
+      ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_FramePadding;
 
   ImGui::PushID(id_index);
   auto const name = std::string(entity->name());
   bool const open = ImGui::TreeNodeEx(name.c_str(), flags);
+
+  if (ImGui::BeginPopupContextItem("NodeContextMenu")) {
+    if (ImGui::BeginMenu("Add Child")) {
+      if (ImGui::MenuItem("Static Mesh")) {
+        _next_action = action_spawn_entity_t{
+            action_spawn_entity_t::spawn_type_t::static_mesh};
+      }
+
+      if (ImGui::MenuItem("Light")) {
+        _next_action =
+            action_spawn_entity_t{action_spawn_entity_t::spawn_type_t::light};
+      }
+
+      ImGui::EndMenu();
+    }
+
+    if (ImGui::MenuItem("Copy Subtree")) {
+      std::println("copying subtree");
+    }
+
+    if (ImGui::MenuItem("Delete")) {
+      _next_action = action_delete_entity_t{entity->transform_id()};
+    }
+
+    ImGui::EndPopup();
+  }
 
   if (ImGui::BeginDragDropTarget()) {
     ImGuiDragDropFlags target_flags =
@@ -196,7 +256,7 @@ constexpr auto entity_hierarchy_t::draw_entity(std::size_t &id_index,
   }
 
   if (ImGui::IsItemClicked()) {
-    _selected = entity;
+    _next_action = action_select_entity_t{entity->transform_id()};
   }
 
   if (open) {
@@ -254,6 +314,14 @@ constexpr auto entity_hierarchy_t::draw_hierarchy(world_t &world) -> void {
       }
     }
 
+    if (ImGui::Button("Add Light")) {
+      auto id = _world->transform_hierarchy().add(glm::mat4(1.0f));
+      if (id.has_value()) {
+        _world->add_entity(light_entity_t("light", id.value(), spot_light_t{}));
+        _selected = &_world->entities().back();
+      }
+    }
+
     std::size_t id_index = 0;
     std::vector<transform_id_t> roots = _transform_hierarchy->roots();
     for (transform_id_t root : roots) {
@@ -263,6 +331,24 @@ constexpr auto entity_hierarchy_t::draw_hierarchy(world_t &world) -> void {
 }
 
 namespace uiutil {
+
+template <consteval_string name>
+constexpr auto simple_colorpicker(glm::vec3 &color) -> bool {
+  ImGuiColorEditFlags const flags = ImGuiColorEditFlags_PickerHueBar;
+  ImGui::Text(name.c_str());
+  constexpr auto label = consteval_string("##") + name;
+  bool used = ImGui::ColorPicker3(label.c_str(), glm::value_ptr(color), flags);
+  return used;
+}
+
+template <consteval_string name>
+constexpr auto simple_draggable_float(float &v, float speed) -> bool {
+  constexpr auto label = consteval_string("##") + name;
+  ImGui::Text("%s", name.c_str());
+  ImGui::SameLine();
+  bool const used = ImGui::DragFloat(label.c_str(), &v, speed);
+  return used;
+}
 
 template <consteval_string name>
 constexpr auto draggable_vec3(glm::vec3 &vec, float speed) -> bool {
@@ -383,8 +469,7 @@ constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
       }
     }
 
-    if (auto *static_mesh = _selected->get<static_mesh_entity_t>()) {
-
+    if (auto *static_mesh = _selected->static_mesh()) {
       std::optional<std::string_view> renderable_name =
           static_mesh->renderable_name();
       std::vector<const char *> model_ptrs;
@@ -425,19 +510,113 @@ constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
         }
       }
     }
+
+    if (light_entity_t *light = _selected->light()) {
+      ImGuiColorEditFlags flags = ImGuiColorEditFlags_PickerHueBar;
+      ImGui::Text("Color");
+      if (ImGui::ColorPicker3("##Color", glm::value_ptr(light->color()),
+                              flags)) {
+      }
+
+      uiutil::simple_draggable_float<"Intensity">(light->intensity(), 0.1f);
+
+      if (spot_light_t *spot = light->spot()) {
+        uiutil::simple_draggable_float<"Inner Cutoff">(spot->inner_cutoff,
+                                                       0.1f);
+        uiutil::simple_draggable_float<"Outer Cutoff">(spot->outer_cutoff,
+                                                       0.1f);
+        uiutil::simple_draggable_float<"Range       ">(spot->range, 0.1f);
+      } else if (hemisphere_light_t *hemisphere = light->hemisphere()) {
+        uiutil::simple_colorpicker<"SkyColor">(hemisphere->sky);
+      } else if (point_light_t *point = light->point()) {
+        uiutil::simple_draggable_float<"Range">(point->range, 0.1f);
+      }
+    }
   }
 }
 
+template <consteval_string name>
+constexpr auto draggable_float(float &v, float speed) -> bool {
+  ImGui::PushItemWidth(-1.0f);
+  constexpr auto label = consteval_string("##") + name;
+  ImGui::Text("%s", name.c_str());
+  ImGui::SameLine();
+  bool const used = ImGui::DragFloat(label.c_str(), &v, speed);
+  ImGui::PopItemWidth();
+  return used;
+}
+
+#if 0
+struct action_spawn_entity_t {};
+
+struct action_delete_entity_t {};
+
+struct action_move_entity_t {};
+
+struct action_select_entity_t {};
+
+struct action_deselect_selected_t {};
+
+struct action_transform_entity_t {};
+
+using action_t =
+    std::variant<action_spawn_entity_t, action_delete_entity_t,
+                 action_move_entity_t, action_select_entity_t,
+                 action_deselect_selected_t, action_transform_entity_t>;
+#endif
+
+constexpr auto entity_hierarchy_t::apply_next_action() -> void {
+  if (!_next_action.has_value()) {
+    return;
+  }
+
+  if (auto *spawn_entity =
+          std::get_if<action_spawn_entity_t>(&_next_action.value())) {
+    std::println("Spawn entity");
+  } else if (auto *delete_entity =
+                 std::get_if<action_delete_entity_t>(&_next_action.value())) {
+    if (_selected != nullptr) {
+      if (_selected->transform_id() == delete_entity->transform_id) {
+        _selected = nullptr;
+      }
+    }
+
+    _world->delete_entity_tree_by_transform_id(delete_entity->transform_id);
+
+  } else if (auto *select_entity =
+                 std::get_if<action_select_entity_t>(&_next_action.value())) {
+    _selected = _world->find_entity(select_entity->transform_id);
+  } else if (std::get_if<action_deselect_selected_t>(&_next_action.value())) {
+    _selected = nullptr;
+  } else {
+    ALEX_ERROR("Undefined Scene Hierarchy Action");
+  }
+
+  _last_actions.push_back(_next_action.value());
+  _next_action = std::nullopt;
+}
+
+constexpr auto entity_hierarchy_t::undo_last_action() -> void {}
+
 constexpr auto entity_hierarchy_t::draw(world_t &world) -> void {
-  ImGui::Begin("Entity Hierarchy");
-  draw_edit_mode();
-  ImGui::Separator();
-  draw_world_manager(world);
-  ImGui::Separator();
-  draw_hierarchy(world);
-  ImGui::Separator();
-  draw_selected(world.camera().view(), world.camera().projection());
+  if (ImGui::Begin("Entity Hierarchy")) {
+    float child_height = ImGui::GetContentRegionAvail().y * 0.5f;
+    if (ImGui::BeginChild("Hierarchy", ImVec2(0.0f, child_height))) {
+      draw_edit_mode();
+      draw_world_manager(world);
+      draw_hierarchy(world);
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    if (ImGui::BeginChild("Selected")) {
+      draw_selected(world.camera().view(), world.camera().projection());
+    }
+    ImGui::EndChild();
+  }
   ImGui::End();
+
+  apply_next_action();
 }
 
 } // namespace game::ui

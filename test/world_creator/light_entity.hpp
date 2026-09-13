@@ -9,8 +9,8 @@
 namespace game {
 
 struct hemisphere_light_t {
+  glm::vec3 color{1.0f, 1.0f, 1.0f};
   glm::vec3 sky{0.0f, 1.0f, 0.0f};
-  glm::vec3 ground{0.0f, 1.0f, 0.0f};
   float intensity{0.1f};
 };
 
@@ -40,9 +40,9 @@ class light_entity_t {
 public:
   template <typename T>
     requires std::is_constructible_v<light_t, T>
-  constexpr light_entity_t(transform_hierarchy::transform_id_t transform_id,
+  constexpr light_entity_t(std::string_view name, transform_hierarchy::transform_id_t transform_id,
                            T &&v)
-      : _transform_id{transform_id}, _light{std::forward<T>(v)} {}
+      : _name{name}, _transform_id{transform_id}, _light{std::forward<T>(v)} {}
 
   constexpr auto name() -> std::string_view;
   constexpr auto set_name(std::string_view name) -> void;
@@ -54,6 +54,9 @@ public:
   constexpr auto directional() -> directional_light_t *;
   constexpr auto point() -> point_light_t *;
   constexpr auto spot() -> spot_light_t *;
+
+  constexpr auto color() -> glm::vec3&;
+  constexpr auto intensity() -> float&;
 
 private:
   template <typename T> constexpr auto access() -> T * {
@@ -97,6 +100,17 @@ constexpr auto light_entity_t::point() -> point_light_t * {
 
 constexpr auto light_entity_t::spot() -> spot_light_t * {
   return access<spot_light_t>();
+}
+
+
+constexpr auto light_entity_t::color() -> glm::vec3&
+{
+    return std::visit([] (auto& l) -> glm::vec3& { return l.color; }, _light);
+}
+
+constexpr auto light_entity_t::intensity() -> float&
+{
+    return std::visit([] (auto& l) -> float& { return l.intensity; }, _light);
 }
 
 } // namespace game

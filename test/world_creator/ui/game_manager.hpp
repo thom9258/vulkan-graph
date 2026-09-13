@@ -23,10 +23,6 @@ constexpr auto to_render_mode(int mode) -> render_mode_t {
   return render_mode_t::lighting;
 }
 
-namespace {
-static const char *render_modes[]{"Lighting", "Base Color", "Colliders"};
-}
-
 class game_manager_t {
 public:
   constexpr game_manager_t() = default;
