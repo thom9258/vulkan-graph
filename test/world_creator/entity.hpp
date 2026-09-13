@@ -1,9 +1,9 @@
 #pragma once
 
 #include "glm_transform_hierarchy.hpp"
-
-#include "entity_concept.hpp"
+#include "light_entity.hpp"
 #include "static_mesh_entity.hpp"
+
 #include <type_traits>
 #include <variant>
 
@@ -11,7 +11,8 @@ namespace game {
 
 class entity_t {
 public:
-  using underlying_entity_t = std::variant<static_mesh_entity_t>;
+  using underlying_entity_t =
+      std::variant<static_mesh_entity_t, light_entity_t>;
 
   template <typename t_value>
     requires std::is_constructible_v<underlying_entity_t, t_value>
@@ -48,6 +49,10 @@ public:
   constexpr auto static_mesh() -> static_mesh_entity_t * {
     return get<static_mesh_entity_t>();
   }
+
+  constexpr auto is_light() -> bool { return is<light_entity_t>(); }
+
+  constexpr auto light() -> light_entity_t * { return get<light_entity_t>(); }
 
   template <typename t_underlying>
     requires requires(underlying_entity_t &entity) {

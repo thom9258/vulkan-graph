@@ -312,7 +312,6 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
     if (mesh.material_name().has_value()) {
       if (material_t *material =
               renderable.find_material(*mesh.material_name())) {
-        std::println("Found material {}", material->name());
         for (vk::UniqueDescriptorSet &diffuse_set :
              ref.diffuse_descriptorsets) {
           const auto image_info =

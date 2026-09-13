@@ -72,7 +72,7 @@ int main() {
   presenter_info.physical_device = core.physical_device();
   presenter_info.device = core.device();
   presenter_info.commandpool = core.commandpool();
-  presenter_info.enable_vsync = true;
+  presenter_info.enable_vsync = false;
   presenter_info.window_surface = window_surface.get();
   presenter_info.window_extent.width = window_extent.width;
   presenter_info.window_extent.height = window_extent.height;
@@ -82,7 +82,6 @@ int main() {
   game::debugui_rendering_t debugui_rendering(
       core, vk::Extent3D(static_cast<std::int32_t>(window_extent.width),
                          static_cast<std::int32_t>(window_extent.height), 1));
-
 
   ALEX_INFO("Engine load time: {}ms", engine_init_timer.elapsed_ms());
 
