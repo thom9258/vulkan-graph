@@ -46,7 +46,8 @@ imgui_context_t::imgui_context_t(imgui_context_info_t &info) {
       ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
   ImGui::StyleColorsDark();
 
-  //TODO: this is a bug if we play on something other than display 0, somehow get display index and pass here.
+  // TODO: this is a bug if we play on something other than display 0, somehow
+  // get display index and pass here.
   float main_scale =
       ImGui_ImplSDL2_GetContentScaleForDisplay(0) * info.ui_scale;
   ImGuiStyle &style = ImGui::GetStyle();
@@ -108,8 +109,7 @@ imgui_context_t::imgui_context_t(imgui_context_info_t &info) {
   init_info.MinImageCount = info.presenter->swapchain_image_count();
   init_info.ImageCount = info.presenter->swapchain_image_count();
   init_info.Allocator = nullptr;
-  init_info.PipelineInfoMain.RenderPass =
-      info.debugui_rendering->renderpass->renderpass();
+  init_info.PipelineInfoMain.RenderPass = info.renderpass;
   init_info.PipelineInfoMain.Subpass = 0;
   init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
   init_info.CheckVkResultFn = imgui_check_vk_result;

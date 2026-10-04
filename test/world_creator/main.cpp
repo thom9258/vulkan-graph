@@ -6,8 +6,8 @@
 #include <alex/presentation_context.hpp>
 #include <alex/texture_storage.hpp>
 
-#include <alex/task_graph.hpp>
 #include <alex/log.hpp>
+#include <alex/task_graph.hpp>
 
 #include "alex/flightframe_array.hpp"
 
@@ -19,6 +19,7 @@
 #include "bitmap.hpp"
 #include "imgui_scene.hpp"
 #include "ui/imgui_context.hpp"
+#include "world_creator/renderer.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -59,10 +60,6 @@ int main() {
   alex::core_info_t core_info;
   core_info.surface = window_surface.get();
   core_info.instance = context.instance();
-  vk::Extent3D render_extent(static_cast<std::int32_t>(window_extent.width),
-                             static_cast<std::int32_t>(window_extent.height),
-                             1);
-
   alex::core_t core(core_info);
 
   /* ****************************************
@@ -78,10 +75,24 @@ int main() {
   presenter_info.window_extent.height = window_extent.height;
   alex::presenter_t presenter(presenter_info);
 
-  game::static_render_t static_render(core, render_extent);
-  game::debugui_rendering_t debugui_rendering(
-      core, vk::Extent3D(static_cast<std::int32_t>(window_extent.width),
-                         static_cast<std::int32_t>(window_extent.height), 1));
+  auto const render_extent =
+      vk::Extent2D(static_cast<std::int32_t>(window_extent.width),
+                   static_cast<std::int32_t>(window_extent.height));
+  auto const display_extent =
+      vk::Extent2D(static_cast<std::int32_t>(window_extent.width),
+                   static_cast<std::int32_t>(window_extent.height));
+
+  game::renderer_info_t renderer_info;
+  renderer_info.physical_device = core.physical_device();
+  renderer_info.device = core.device();
+  renderer_info.render_extent = render_extent;
+  renderer_info.display_extent = display_extent;
+  game::renderer_t renderer(renderer_info);
+
+// game::static_render_t static_render(core, render_extent);
+// game::debugui_rendering_t debugui_rendering(
+//     core, vk::Extent3D(static_cast<std::int32_t>(window_extent.width),
+//                        static_cast<std::int32_t>(window_extent.height), 1));
 
   ALEX_INFO("Engine load time: {}ms", engine_init_timer.elapsed_ms());
 
@@ -97,14 +108,13 @@ int main() {
   imgui_context_info.core = &core;
   imgui_context_info.presenter = &presenter;
   imgui_context_info.window = &window;
-  imgui_context_info.debugui_rendering = &debugui_rendering;
+  imgui_context_info.renderpass = renderer.debugui_renderpass();
 
   game::imgui_context_t imgui_context(imgui_context_info);
 
   game::imgui_scene_info_t imgui_scene_info;
   imgui_scene_info.core = &core;
-  imgui_scene_info.static_render = &static_render;
-  imgui_scene_info.debugui_rendering = &debugui_rendering;
+  imgui_scene_info.renderer = &renderer;
   imgui_scene_info.presenter = &presenter;
   imgui_scene_info.imgui_context = &imgui_context;
   imgui_scene_info.window = &window;

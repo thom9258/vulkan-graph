@@ -5,7 +5,6 @@
 #include "../light_entity.hpp"
 #include "../resources.hpp"
 #include "../static_mesh_entity.hpp"
-#include "../static_render.hpp"
 #include "../world.hpp"
 #include "ImGuizmo.h"
 #include "imgui.h"
@@ -60,8 +59,7 @@ public:
 
   constexpr explicit entity_hierarchy_t(
       world_t *world, glm_transform_hierarchy *transform_hierarchy,
-      resources_t *resources, alex::core_t *core,
-      static_render_t *static_render);
+      resources_t *resources, alex::core_t *core);
 
   constexpr auto update_input(std::span<SDL_Event> events) -> void;
 
@@ -94,7 +92,6 @@ private:
   glm_transform_hierarchy *_transform_hierarchy{nullptr};
   resources_t *_resources{nullptr};
   alex::core_t *_core{nullptr};
-  static_render_t *_static_render{nullptr};
 
   std::optional<std::string> _world_path_str;
 
@@ -160,9 +157,9 @@ constexpr auto mode_to_index(ImGuizmo::MODE mode) -> int {
 
 constexpr entity_hierarchy_t::entity_hierarchy_t(
     world_t *world, glm_transform_hierarchy *transform_hierarchy,
-    resources_t *resources, alex::core_t *core, static_render_t *static_render)
+    resources_t *resources, alex::core_t *core)
     : _world{world}, _transform_hierarchy{transform_hierarchy},
-      _resources{resources}, _core{core}, _static_render{static_render} {
+      _resources{resources}, _core{core} {
 
   _all_models = _resources->get_all_renderable_names();
 }
@@ -495,8 +492,9 @@ constexpr auto entity_hierarchy_t::draw_selected(glm::mat4 view,
               _resources->get_renderable(selected_renderable);
 
           if (renderable != nullptr) {
-            static_mesh->set_renderable(selected_renderable, _core,
-                                        _static_render, *renderable);
+              ALEX_ERROR("CANNOT SET RENDERABLE ON STATIC MESH");
+//           static_mesh->set_renderable(selected_renderable, _core,
+//                                       _renderer, *renderable);
           }
         }
       }

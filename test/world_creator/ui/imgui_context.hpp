@@ -8,7 +8,6 @@
 #include <vulkan/vulkan_to_string.hpp>
 
 #include "../../utility/sdl.hpp"
-#include "../debugui_render.hpp"
 
 namespace game {
 
@@ -18,7 +17,7 @@ struct imgui_context_info_t {
   alex::core_t *core{nullptr};
   alex::presenter_t *presenter{nullptr};
   sdl::window_t *window{nullptr};
-  debugui_rendering_t *debugui_rendering{nullptr};
+  vk::RenderPass renderpass;
 };
 
 class imgui_context_t {

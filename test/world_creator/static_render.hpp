@@ -33,6 +33,7 @@ public:
   auto depth_attachments() -> std::span<alex::texture_t>;
   auto diffuse_setlayout() -> vk::DescriptorSetLayout;
   auto frame_uniform_setlayout() -> vk::DescriptorSetLayout;
+  auto light_uniform_setlayout() -> vk::DescriptorSetLayout;
 
 private:
   vk::Extent3D _extent;
@@ -42,6 +43,7 @@ private:
 
   vk::UniqueDescriptorSetLayout _diffuse_setlayout;
   vk::UniqueDescriptorSetLayout _frame_uniform_setlayout;
+  vk::UniqueDescriptorSetLayout _light_uniform_setlayout;
 
   std::optional<alex::geometrypass_t> _renderpass;
   std::optional<alex::pipeline_t> _pipeline;

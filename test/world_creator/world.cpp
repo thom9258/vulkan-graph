@@ -10,16 +10,133 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "slurp_file.hpp"
+#include "world_creator/light_entity.hpp"
+#include "world_creator/serialization.hpp"
 #include "world_creator/ui/imgui_context.hpp"
 
 #include <iostream>
 
 namespace game {
 
+namespace util {
+constexpr auto serialize(glm::vec3 v) -> serialization::v1::vec3_t {
+  return {v[0], v[1], v[2]};
+}
+
+constexpr auto deserialize(serialization::v1::vec3_t v) -> glm::vec3 {
+  return {v[0], v[1], v[2]};
+}
+
+constexpr auto serialize(hemisphere_light_t &light)
+    -> serialization::v1::light_hemisphere_t {
+  serialization::v1::light_hemisphere_t out;
+  out.color = serialize(light.color);
+  out.sky = serialize(light.sky);
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto serialize(directional_light_t &light)
+    -> serialization::v1::light_directional_t {
+  serialization::v1::light_directional_t out;
+  out.color = serialize(light.color);
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto serialize(spot_light_t &light)
+    -> serialization::v1::light_spot_t {
+  serialization::v1::light_spot_t out;
+  out.color = serialize(light.color);
+  out.inner_cutoff = light.inner_cutoff;
+  out.outer_cutoff = light.outer_cutoff;
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto serialize(point_light_t &light)
+    -> serialization::v1::light_point_t {
+  serialization::v1::light_point_t out;
+  out.color = serialize(light.color);
+  out.range = light.range;
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto deserialize(serialization::v1::light_hemisphere_t &light)
+    -> hemisphere_light_t {
+  hemisphere_light_t out;
+  out.color = deserialize(light.color);
+  out.sky = deserialize(light.sky);
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto deserialize(serialization::v1::light_directional_t &light)
+    -> directional_light_t {
+  directional_light_t out;
+  out.color = deserialize(light.color);
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto deserialize(serialization::v1::light_spot_t &light)
+    -> spot_light_t {
+  spot_light_t out;
+  out.color = deserialize(light.color);
+  out.inner_cutoff = light.inner_cutoff;
+  out.outer_cutoff = light.outer_cutoff;
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto deserialize(const serialization::v1::light_point_t &light)
+    -> point_light_t {
+  point_light_t out;
+  out.color = deserialize(light.color);
+  out.range = light.range;
+  out.intensity = light.intensity;
+  return out;
+}
+
+constexpr auto serialize(static_mesh_entity_t &static_mesh)
+    -> serialization::v1::static_mesh_t {
+  serialization::v1::static_mesh_t out;
+  out.model_source = static_mesh.renderable_name();
+  out.has_mesh_collider = static_mesh.has_mesh_collider();
+  return out;
+}
+
+constexpr auto serialize(glm::mat4 mat) -> serialization::v1::transform_t {
+  serialization::v1::transform_t out;
+  glm::vec3 translation(0.0f);
+  glm::quat rotation;
+  glm::vec3 scale(0.0f);
+  glm::vec3 skew(0.0f);
+  glm::vec4 perspective(0.0f);
+  glm::decompose(mat, scale, rotation, translation, skew, perspective);
+  glm::vec3 rotation_euler = glm::eulerAngles(rotation);
+  out.translation = util::serialize(translation);
+  out.rotation = util::serialize(rotation_euler);
+  out.scale = util::serialize(scale);
+  return out;
+}
+
+constexpr auto deserialize(serialization::v1::transform_t &transform)
+    -> glm::mat4 {
+  const auto translation = deserialize(transform.translation);
+  const auto rotation = deserialize(transform.rotation);
+  const auto scale = deserialize(transform.scale);
+  return glm::translate(glm::mat4(1.0f), translation) *
+         glm::eulerAngleXYZ(rotation[0], rotation[1], rotation[2]) *
+         glm::scale(glm::mat4(1.0f), scale);
+}
+
+} // namespace util
+
 world_t::world_t(sdl::window_extent_t extent, alex::core_t *core,
-                 static_render_t *static_render, resources_t *resources,
-                 imgui_context_t *imgui_context)
-    : _core{core}, _static_render{static_render}, _resources{resources},
+                 resources_t *resources, imgui_context_t *imgui_context)
+    : _core{core}, _resources{resources},
       _imgui_context{imgui_context} {
   const float aspect = extent.aspect();
   const float near_plane = 0.1f, far_plane = 200.0f;
@@ -112,23 +229,7 @@ auto world_t::load_entity_v1(
     serialization::v1::entity_t &entity,
     std::optional<transform_hierarchy::transform_id_t> parent) -> void {
 
-  const auto translation = glm::vec3{entity.transform.translation[0],
-                                     entity.transform.translation[1],
-                                     entity.transform.translation[2]};
-
-  const auto rotation =
-      glm::vec3{entity.transform.rotation[0], entity.transform.rotation[1],
-                entity.transform.rotation[2]};
-
-  const auto scale =
-      glm::vec3{entity.transform.scale[2], entity.transform.scale[1],
-                entity.transform.scale[2]};
-
-  glm::mat4 const transform =
-      glm::translate(glm::mat4(1.0f), translation) *
-      glm::eulerAngleXYZ(rotation[0], rotation[1], rotation[2]) *
-      glm::scale(glm::mat4(1.0f), scale);
-
+  const auto transform = util::deserialize(entity.transform);
   std::optional<transform_hierarchy::transform_id_t> transform_id;
   if (parent.has_value()) {
     transform_id = _transform_hierarchy->add_child_local_location(
@@ -137,24 +238,55 @@ auto world_t::load_entity_v1(
     transform_id = _transform_hierarchy->add(transform);
   }
 
-  static_mesh_entity_t deserialized(entity.name, *transform_id);
-  if (entity.model_source.has_value()) {
-    if (entity.model_source.value() != "") {
-      auto renderable = _resources->get_renderable(entity.model_source.value());
+  std::optional<entity_t> deserialized;
+
+  if (auto *static_mesh =
+          std::get_if<serialization::v1::static_mesh_t>(&entity.kind)) {
+    static_mesh_entity_t kind(entity.name, transform_id.value());
+    if (static_mesh->model_source.has_value() &&
+        static_mesh->model_source != "") {
+      auto renderable =
+          _resources->get_renderable(static_mesh->model_source.value());
       if (!renderable) {
         ALEX_WARN("Could not find model source for name '{}'",
-                  entity.model_source.value());
+                  static_mesh->model_source.value());
         return;
       }
 
-      deserialized.set_renderable(entity.model_source.value(), _core,
-                                  _static_render, *renderable);
+//     kind.set_renderable(static_mesh->model_source.value(), _core,
+//                         _renderer, *renderable);
     }
 
-    deserialized.set_has_mesh_collider(entity.has_mesh_collider);
+    kind.set_has_mesh_collider(static_mesh->has_mesh_collider);
+    deserialized = entity_t(std::move(kind));
+  } else if (auto *hemisphere =
+                 std::get_if<serialization::v1::light_hemisphere_t>(
+                     &entity.kind)) {
+    deserialized = entity_t(light_entity_t(entity.name, transform_id.value(),
+                                           util::deserialize(*hemisphere)));
+  } else if (auto *directional =
+                 std::get_if<serialization::v1::light_directional_t>(
+                     &entity.kind)) {
+    deserialized = entity_t(light_entity_t(entity.name, transform_id.value(),
+                                           util::deserialize(*directional)));
+  } else if (auto *spot =
+                 std::get_if<serialization::v1::light_spot_t>(&entity.kind)) {
+    deserialized = entity_t(light_entity_t(entity.name, transform_id.value(),
+                                           util::deserialize(*spot)));
+  } else if (auto *point =
+                 std::get_if<serialization::v1::light_point_t>(&entity.kind)) {
+    deserialized = entity_t(light_entity_t(entity.name, transform_id.value(),
+                                           util::deserialize(*point)));
+  } else if (auto *hemisphere =
+                 std::get_if<serialization::v1::light_hemisphere_t>(
+                     &entity.kind)) {
+    deserialized = entity_t(light_entity_t(entity.name, transform_id.value(),
+                                           util::deserialize(*hemisphere)));
   }
 
-  add_entity(std::move(deserialized));
+  if (deserialized.has_value()) {
+    add_entity(std::move(deserialized.value()));
+  }
 
   for (serialization::v1::entity_t &child : entity.children) {
     load_entity_v1(child, transform_id);
@@ -206,27 +338,21 @@ auto world_t::save_entity_v1(transform_hierarchy::transform_id_t transform_id)
 
   auto location = _transform_hierarchy->local_location(transform_id);
   if (location.has_value()) {
-
-    glm::vec3 translation(0.0f);
-    glm::quat rotation;
-    glm::vec3 scale(0.0f);
-    glm::vec3 skew(0.0f);
-    glm::vec4 perspective(0.0f);
-    glm::decompose(*location, scale, rotation, translation, skew, perspective);
-
-    glm::vec3 rotation_euler = glm::eulerAngles(rotation);
-
-    serialized.transform.translation =
-        serialization::v1::vec3_t{translation.x, translation.y, translation.z};
-    serialized.transform.rotation = serialization::v1::vec3_t{
-        rotation_euler.x, rotation_euler.y, rotation_euler.z};
-    serialized.transform.scale =
-        serialization::v1::vec3_t{scale.x, scale.y, scale.z};
+    serialized.transform = util::serialize(*location);
   }
 
-  if (auto *static_mesh = entity->get<static_mesh_entity_t>()) {
-    serialized.model_source = static_mesh->renderable_name();
-    serialized.has_mesh_collider = static_mesh->has_mesh_collider();
+  if (auto *static_mesh = entity->static_mesh()) {
+    serialized.kind = util::serialize(*static_mesh);
+  } else if (auto *light = entity->light()) {
+    if (auto *hemisphere = light->hemisphere()) {
+      serialized.kind = util::serialize(*hemisphere);
+    } else if (auto *directional = light->directional()) {
+      serialized.kind = util::serialize(*directional);
+    } else if (auto *point = light->point()) {
+      serialized.kind = util::serialize(*point);
+    } else if (auto *spot = light->spot()) {
+      serialized.kind = util::serialize(*spot);
+    }
   }
 
   auto children = _transform_hierarchy->children(transform_id);

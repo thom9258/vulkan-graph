@@ -12,10 +12,10 @@
 #include "entity.hpp"
 #include "glm_transform_hierarchy.hpp"
 #include "imgui.h"
+#include "renderer.hpp"
 #include "resource_loader.hpp"
-#include "static_mesh_entity.hpp"
 #include "resources.hpp"
-#include "static_render.hpp"
+#include "static_mesh_entity.hpp"
 #include "ui/entity_hierarchy.hpp"
 #include "ui/game_manager.hpp"
 #include "ui/imgui_context.hpp"
@@ -34,8 +34,7 @@ struct imgui_scene_info_t {
   alex::core_t *core{nullptr};
   alex::presenter_t *presenter{nullptr};
   sdl::window_t *window{nullptr};
-  static_render_t *static_render{nullptr};
-  debugui_rendering_t *debugui_rendering{nullptr};
+  renderer_t *renderer{nullptr};
   imgui_context_t *imgui_context{nullptr};
 };
 
@@ -63,8 +62,7 @@ private:
   alex::core_t *_core{nullptr};
   alex::presenter_t *_presenter{nullptr};
   sdl::window_t *_window{nullptr};
-  static_render_t *_static_render{nullptr};
-  debugui_rendering_t *_debugui_rendering{nullptr};
+  renderer_t *_renderer{nullptr};
   imgui_context_t *_imgui_context{nullptr};
 
   alex::flightframe_array_t<alex::graph_t> _rendergraphs;
@@ -80,9 +78,7 @@ private:
 
 imgui_scene::imgui_scene(imgui_scene_info_t &info)
     : _core{info.core}, _presenter{info.presenter}, _window{info.window},
-      _static_render{info.static_render},
-      _debugui_rendering{info.debugui_rendering},
-      _imgui_context{info.imgui_context} {
+      _renderer{info.renderer}, _imgui_context{info.imgui_context} {
 
   for (vk::UniqueSemaphore &semaphore : _rendergraph_semaphores) {
     semaphore = _core->create_semaphore();
@@ -90,13 +86,12 @@ imgui_scene::imgui_scene(imgui_scene_info_t &info)
 
   _resources.emplace(_core, "../asset_manifest.json");
 
-  _world.emplace(_window->window_extent(), _core, _static_render,
-                 &_resources.value(), _imgui_context);
+  _world.emplace(_window->window_extent(), _core, &_resources.value(),
+                 _imgui_context);
 
   _entity_hierarchy =
       ui::entity_hierarchy_t(&_world.value(), &_world->transform_hierarchy(),
-                             &(_resources.value()), _core, _static_render);
-
+                             &(_resources.value()), _core);
 
   _level_settings = ui::level_settings_t(&_world.value());
 }
@@ -167,9 +162,22 @@ constexpr auto imgui_scene::update_logic() -> scene::status_t {
 }
 
 constexpr auto imgui_scene::update_render() -> scene::status_t {
+
   alex::next_frame_info_t next_frame_info =
       _presenter->wait_for_next_frame(_core->device());
 
+  renderer_draw_frame_info_t draw_frame_info;
+  draw_frame_info.flightframe = next_frame_info.flightframe;
+  draw_frame_info.device = _core->device();
+  draw_frame_info.commandpool = _core->commandpool();
+  draw_frame_info.queue = _core->queue();
+  draw_frame_info.entity_hierarchy = &_entity_hierarchy;
+  draw_frame_info.game_manager = &_game_manager;
+  draw_frame_info.level_settings = &_level_settings;
+  draw_frame_info.imgui_context = _imgui_context;
+  draw_frame_info.world = &_world.value();
+  draw_frame_result_t draw_result = _renderer->draw_frame(draw_frame_info);
+#if 0
   _rendergraphs[next_frame_info.flightframe] = alex::graph_t();
   alex::graph_t &graph = _rendergraphs[next_frame_info.flightframe];
 
@@ -194,9 +202,10 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
 
   graph.set_end(debugui_task_id);
 
-  graph.add_task(upload_task_id,
-                 std::make_unique<alex::simple_task_t>(
-                     "upload", [&](vk::CommandBuffer commandbuffer) {
+  graph.add_task(
+      upload_task_id,
+      std::make_unique<alex::simple_task_t>(
+          "upload", [&](vk::CommandBuffer commandbuffer) {
             for (entity_t &entity : _world->entities()) {
               if (auto *static_mesh = entity.get<static_mesh_entity_t>()) {
                 static_mesh_entity_update_info_t update_info;
@@ -429,7 +438,6 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
                   _world->background_color().b());
             }
 
-
             ImGui::Render();
             ImDrawData *draw_data = ImGui::GetDrawData();
             _imgui_context->render_draw_data(draw_data, commandbuffer);
@@ -448,12 +456,13 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
   graph_evaluate_info.queue = _core->queue();
   graph_evaluate_info.sync_semaphore = graph_finished_semaphore;
   graph.evaluate(graph_evaluate_info);
+#endif
 
   alex::presentation_info_t presentation_info;
   presentation_info.source_offset_start = vk::Offset3D{0, 0, 0};
-  presentation_info.source_offset_end = vk::Offset3D{
-      static_cast<std::int32_t>(_debugui_rendering->_extent.width),
-      static_cast<std::int32_t>(_debugui_rendering->_extent.height), 1};
+  presentation_info.source_offset_end =
+      vk::Offset3D{static_cast<std::int32_t>(draw_result.extent.width),
+                   static_cast<std::int32_t>(draw_result.extent.height), 1};
 
   presentation_info.destination_offset_start = vk::Offset3D{0, 0, 0};
   presentation_info.destination_offset_end = vk::Offset3D{
@@ -461,12 +470,10 @@ constexpr auto imgui_scene::update_render() -> scene::status_t {
       static_cast<std::int32_t>(_presenter->window_extent.height), 1};
 
   presentation_info.blit_filter = vk::Filter::eNearest;
-  presentation_info.image =
-      _debugui_rendering->attachments.color[next_frame_info.flightframe]
-          .image();
+  presentation_info.image = draw_result.image;
   presentation_info.layout = vk::ImageLayout::eColorAttachmentOptimal;
   presentation_info.queue = _core->queue();
-  presentation_info.wait_semaphore = graph_finished_semaphore;
+  presentation_info.wait_semaphore = draw_result.semaphore;
   _presenter->present(presentation_info);
 
   return scene::status_t::ok;

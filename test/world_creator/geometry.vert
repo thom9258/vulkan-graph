@@ -8,9 +8,10 @@ layout(location = 2) in vec3 inColor;
 layout(location = 3) in vec2 inTexcoord;
 
 layout(location = 0) out vec3 fragColor;
-layout(location = 1) out vec2 texcoord;
+layout(location = 1) out vec3 normal;
+layout(location = 2) out vec2 texcoord;
 
-layout (set = 0, binding = 0)
+layout (set = 0, binding = 0, std140)
 uniform Info
 {
 	mat4 view;
@@ -21,11 +22,10 @@ uniform Info
 void main() {
     const mat4 transform = info.proj * info.view * info.model;
 	const vec4 position = transform * vec4(inPosition, 1.0f);
-
-	//const vec2 resolution = vec2(320.0, 240.0);
-	//gl_Position = ps1_low_precision(position, resolution);
-
 	gl_Position = position;
     fragColor = inColor;
+    const mat3 normal_matrix = mat3(transpose(inverse(info.model)));
+    normal = vec3(normal_matrix * inNormal);
+
     texcoord = inTexcoord;
 }

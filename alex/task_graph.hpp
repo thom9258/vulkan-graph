@@ -236,14 +236,14 @@ public:
         wait_dst_stage_masks.push_back(vk::PipelineStageFlagBits::eTopOfPipe);
       }
 
-      std::vector<vk::Semaphore> signal_semaphores;
+      _signal_semaphores.clear();
       for (dependency_t *dependency : children_dependencies) {
-        signal_semaphores.push_back(dependency->semaphore());
+        _signal_semaphores.push_back(dependency->semaphore());
       }
 
       if (info.sync_semaphore.has_value()) {
         if (job->id() == _ending_task_id) {
-          signal_semaphores.push_back(info.sync_semaphore.value());
+          _signal_semaphores.push_back(info.sync_semaphore.value());
         }
       }
 
@@ -251,7 +251,7 @@ public:
                              .setCommandBuffers(commandbuffer)
                              .setWaitSemaphores(wait_semaphores)
                              .setWaitDstStageMask(wait_dst_stage_masks)
-                             .setSignalSemaphores(signal_semaphores);
+                             .setSignalSemaphores(_signal_semaphores);
 
       info.queue.submit(submit_info);
       next_commandbuffer++;
@@ -264,6 +264,7 @@ private:
   std::vector<job_t> _jobs;
   std::vector<std::unique_ptr<dependency_t>> _dependencies;
   std::vector<vk::UniqueCommandBuffer> _commandbuffers;
+  std::vector<vk::Semaphore> _signal_semaphores;
   task_id_t _ending_task_id;
 };
 

@@ -6,13 +6,13 @@
 
 #include "glm_transform_hierarchy.hpp"
 #include "resource_loader.hpp"
-#include "static_render.hpp"
 #include "utility/transform_hierarchy.hpp"
 
 namespace game {
 
 namespace detail {
 
+#if 0
 struct static_mesh_ref_t {
   alex::memory_buffer_t *vertices{nullptr};
   std::uint32_t vertices_length{0};
@@ -42,9 +42,10 @@ struct static_model_ref_t {
   std::vector<static_mesh_ref_t> meshes;
   std::vector<static_model_ref_t> children;
 };
-
+#endif
 } // namespace detail
 
+#if 0
 struct static_mesh_entity_update_info_t {
   vk::PhysicalDevice physical_device;
   vk::Device device;
@@ -62,6 +63,7 @@ struct static_mesh_entity_draw_info_t {
   vk::PipelineLayout geometry_pipeline_layout;
   std::uint32_t flightframe;
 };
+#endif
 
 class static_mesh_entity_t {
 public:
@@ -92,17 +94,18 @@ public:
   constexpr auto
   set_transform_id(transform_hierarchy::transform_id_t transform_id) -> void;
 
-  constexpr auto resource_update(static_mesh_entity_update_info_t &info)
-      -> void;
+// constexpr auto resource_update(static_mesh_entity_update_info_t &info)
+//     -> void;
 
-  constexpr auto draw(static_mesh_entity_draw_info_t &info) -> void;
+  //constexpr auto draw(static_mesh_entity_draw_info_t &info) -> void;
 
   constexpr auto renderable_name() -> std::optional<std::string_view>;
-  constexpr auto set_renderable(std::string_view name, alex::core_t *core,
-                                static_render_t *static_render,
-                                renderable_t &renderable) -> void;
 
-  std::optional<detail::static_model_ref_t> _static_model_ref;
+// constexpr auto set_renderable(std::string_view name, alex::core_t *core,
+//                               renderer_t *renderer, renderable_t &renderable)
+//     -> void;
+
+//  std::optional<detail::static_model_ref_t> _static_model_ref;
 
 private:
   std::string _name{"unnamed-static-mesh-entity"};
@@ -145,6 +148,8 @@ constexpr auto static_mesh_entity_t::set_transform_id(
   _transform_id = transform_id;
 }
 
+
+#if 0
 constexpr auto
 static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
     -> void {
@@ -156,15 +161,15 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
                           glm::mat4 parent_transform) -> void {
     const glm::mat4 model_matrix = parent_transform * model_ref.transform;
     for (detail::static_mesh_ref_t &mesh_ref : model_ref.meshes) {
-      static_render_t::frame_uniform_t frame_uniform;
-      frame_uniform.view = info.camera_view;
-      frame_uniform.projection = info.camera_projection;
-      frame_uniform.model = model_matrix;
+      renderer_t::uniform_mvp_t mvp_uniform;
+      mvp_uniform.view = info.camera_view;
+      mvp_uniform.projection = info.camera_projection;
+      mvp_uniform.model = model_matrix;
 
       // TODO: must calculate parent to child matrix relationship
-      frame_uniform.model = model_matrix;
+      mvp_uniform.model = model_matrix;
       std::memcpy(mesh_ref.direct_uniforms[info.flightframe].memory_ptr(),
-                  &frame_uniform, sizeof(frame_uniform));
+                  &mvp_uniform, sizeof(mvp_uniform));
 
       alex::memory_buffer_write_info_t write_info;
       write_info.physical_device = info.physical_device;
@@ -184,7 +189,8 @@ static_mesh_entity_t::resource_update(static_mesh_entity_update_info_t &info)
   update_model(update_model, _static_model_ref.value(),
                location.value_or(glm::mat4(1.0f)));
 }
-
+#endif
+#if 0
 constexpr auto static_mesh_entity_t::draw(static_mesh_entity_draw_info_t &info)
     -> void {
   if (!_static_model_ref.has_value()) {
@@ -225,11 +231,12 @@ constexpr auto static_mesh_entity_t::draw(static_mesh_entity_draw_info_t &info)
 
   draw_model(draw_model, _static_model_ref.value());
 }
+#endif
 
 namespace detail {
 
-constexpr auto create_ref_for_mesh(alex::core_t *core,
-                                   static_render_t *static_render,
+#if 0
+constexpr auto create_ref_for_mesh(alex::core_t *core, renderer_t *renderer,
                                    renderable_t &renderable, mesh_t &mesh)
     -> static_mesh_ref_t {
   static_mesh_ref_t ref;
@@ -239,18 +246,18 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
   ref.indices_length = mesh.indices_length();
 
   core->immediate_evaluate([&](vk::CommandBuffer commandbuffer) -> void {
-    static_render_t::frame_uniform_t frame_uniform;
+    renderer_t::uniform_mvp_t mvp_uniform;
 
     alex::direct_memory_buffer_info_t direct_uniform_info;
     direct_uniform_info.physical_device = core->physical_device();
     direct_uniform_info.device = core->device();
     direct_uniform_info.buffer_type = alex::memory_buffer_type_t::basic;
-    direct_uniform_info.memory_size = sizeof(frame_uniform);
+    direct_uniform_info.memory_size = sizeof(mvp_uniform);
 
     for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
       ref.direct_uniforms.emplace_back(direct_uniform_info);
-      std::memcpy(ref.direct_uniforms.back().memory_ptr(), &frame_uniform,
-                  sizeof(frame_uniform));
+      std::memcpy(ref.direct_uniforms.back().memory_ptr(), &mvp_uniform,
+                  sizeof(mvp_uniform));
     }
 
     for (std::size_t i = 0; i < alex::frames_in_flight; i++) {
@@ -351,40 +358,41 @@ constexpr auto create_ref_for_mesh(alex::core_t *core,
 }
 
 constexpr auto create_model_ref(alex::core_t *core,
-                                static_render_t *static_render,
-                                renderable_t &renderable, model_t &model)
-    -> detail::static_model_ref_t {
+                                renderer_t *renderer, renderable_t &renderable,
+                                model_t &model) -> detail::static_model_ref_t {
   detail::static_model_ref_t model_ref;
   model_ref.name = model.name();
   model_ref.transform = model.transform();
 
   for (mesh_t &mesh : model.meshes()) {
     model_ref.meshes.push_back(
-        detail::create_ref_for_mesh(core, static_render, renderable, mesh));
+        detail::create_ref_for_mesh(core, renderer, renderable, mesh));
   }
 
   for (model_t &child : model.children()) {
     model_ref.children.push_back(
-        create_model_ref(core, static_render, renderable, child));
+        create_model_ref(core, renderer, renderable, child));
   }
 
   return model_ref;
 }
-
+#endif
 } // namespace detail
 
+#if 0
 constexpr auto
 static_mesh_entity_t::set_renderable(std::string_view name, alex::core_t *core,
-                                     static_render_t *static_render,
+                                     renderer_t *renderer,
                                      renderable_t &renderable) -> void {
   if (renderable.root() == nullptr) {
     return;
   }
 
   _renderable_name = name;
-  _static_model_ref = detail::create_model_ref(core, static_render, renderable,
-                                               *renderable.root());
+  _static_model_ref =
+      detail::create_model_ref(core, renderer, renderable, *renderable.root());
 }
+#endif
 
 constexpr auto static_mesh_entity_t::renderable_name()
     -> std::optional<std::string_view> {

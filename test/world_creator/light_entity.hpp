@@ -38,6 +38,7 @@ using light_t = std::variant<hemisphere_light_t, directional_light_t,
 
 class light_entity_t {
 public:
+
   template <typename T>
     requires std::is_constructible_v<light_t, T>
   constexpr light_entity_t(std::string_view name, transform_hierarchy::transform_id_t transform_id,
